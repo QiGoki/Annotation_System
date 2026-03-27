@@ -1,0 +1,6 @@
+{"data_source": {"type": "text", "content": "人工智能（Artificial Intelligence）是计算机科学的一个分支，致力于创建能够执行通常需要人类智能的任务的系统。"}, "metadata": {"source": "wiki", "language": "zh"}}
+{"data_source": {"type": "text", "content": "机器学习是人工智能的核心技术之一，它使计算机能够从数据中学习并改进性能，而无需显式编程。"}, "metadata": {"source": "wiki", "language": "zh"}}
+{"data_source": {"type": "text", "content": "深度学习是机器学习的子集，使用多层神经网络来识别模式和特征。"}, "metadata": {"source": "wiki", "language": "zh"}}
+{"data_source": {"type": "text", "content": "自然语言处理（NLP）使计算机能够理解、解释和生成人类语言。"}, "metadata": {"source": "wiki", "language": "zh"}}
+{"data_source": {"type": "text", "content": "计算机视觉是 AI 领域，使计算机能够从图像和视频中提取信息和分析。"}, "metadata": {"source": "wiki", "language": "zh"}}
+{"data_source": {"type": "text", "content": "强化学习是一种机器学习方法，其中智能体通过与环境交互学习最优行为策略。"}, "metadata": {"source": "wiki", "language": "zh"}}

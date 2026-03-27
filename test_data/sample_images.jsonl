@@ -1,0 +1,5 @@
+{"data_source": {"type": "image", "url": "https://picsum.photos/800/600", "filename": "image_001.jpg"}, "metadata": {"source": "test", "category": "object_detection"}}
+{"data_source": {"type": "image", "url": "https://picsum.photos/1024/768", "filename": "image_002.jpg"}, "metadata": {"source": "test", "category": "classification"}}
+{"data_source": {"type": "image", "url": "https://picsum.photos/640/480", "filename": "image_003.jpg"}, "metadata": {"source": "test", "category": "object_detection"}}
+{"data_source": {"type": "image", "url": "https://picsum.photos/1280/720", "filename": "image_004.jpg"}, "metadata": {"source": "test", "category": "segmentation"}}
+{"data_source": {"type": "image", "url": "https://picsum.photos/800/800", "filename": "image_005.jpg"}, "metadata": {"source": "test", "category": "classification"}}

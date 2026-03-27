@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSONL 标注工具</title>
+    <style>
+        :root {
+            /* 哔哩哔哩配色方案 */
+            --bili-pink: #FB7299;
+            --bili-pink-hover: #ff85a7;
+            --bili-blue: #00AEEC;
+            --bili-blue-dark: #0096c7;
+            --bili-bg: #f4f5f7;
+            --bili-card-bg: #ffffff;
+            --bili-text-primary: #212121;
+            --bili-text-secondary: #9499a0;
+            --bili-border: #e3e5e7;
+            --bili-orange: #ff9933;
+            --bili-green: #58c684;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: var(--bili-bg);
+            color: var(--bili-text-primary);
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .header h1 {
+            color: var(--bili-pink);
+            font-size: 24px;
+            margin: 0;
+        }
+
+        .upload-section {
+            margin-bottom: 20px;
+            padding: 20px;
+            background: var(--bili-card-bg);
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            text-align: center;
+        }
+
+        .container {
+            display: flex;
+            gap: 20px;
+        }
+
+        .image-section {
+            flex: 1;
+            background: var(--bili-card-bg);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+
+        .info-section {
+            width: 350px;
+            background: var(--bili-card-bg);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+
+        .image-container {
+            position: relative;
+            display: inline-block;
+            max-width: 100%;
+        }
+
+        #image-preview {
+            max-width: 100%;
+            display: block;
+            border-radius: 4px;
+        }
+
+        #bounding-box {
+            position: absolute;
+            border: 3px solid var(--bili-pink);
+            background-color: rgba(251, 114, 153, 0.15);
+            box-sizing: border-box;
+            cursor: move;
+        }
+
+        #bounding-box .resize-handle {
+            display: none;
+            position: absolute;
+            width: 5px;
+            height: 5px;
+            background: var(--bili-pink);
+            border: 1px solid white;
+            border-radius: 50%;
+            z-index: 10;
+        }
+
+        #bounding-box.selected .resize-handle {
+            display: block;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: var(--bili-text-primary);
+        }
+
+        .form-group input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--bili-border);
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+            transition: border-color 0.2s;
+        }
+
+        .form-group input[type="text"]:focus {
+            outline: none;
+            border-color: var(--bili-blue);
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background-color: var(--bili-pink);
+            color: white;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        .btn-primary:hover {
+            background-color: var(--bili-pink-hover);
+        }
+
+        .btn-primary:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        .progress {
+            margin-top: 10px;
+            color: var(--bili-text-secondary);
+            font-size: 14px;
+        }
+
+        .count-display {
+            background: linear-gradient(135deg, var(--bili-pink), #ff9eb5);
+            padding: 15px 25px;
+            border-radius: 8px;
+            text-align: center;
+            color: white;
+        }
+
+        .count-display .number {
+            font-size: 32px;
+            font-weight: bold;
+        }
+
+        .count-display .label {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .stats {
+            margin-top: 20px;
+            padding: 15px;
+            background: var(--bili-bg);
+            border-radius: 6px;
+            font-size: 13px;
+        }
+
+        .stats p {
+            margin: 5px 0;
+            color: var(--bili-text-secondary);
+        }
+
+        .stats strong {
+            color: var(--bili-text-primary);
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .toast {
+            text-align: center;
+            background: var(--bili-green);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 6px;
+            display: none;
+            margin-top: 15px;
+            font-size: 14px;
+            box-shadow: 0 2px 8px rgba(88, 198, 132, 0.3);
+        }
+
+        .toast.show {
+            display: block;
+            animation: fadeIn 0.3s, fadeOut 0.3s 1.7s;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
+
+        .prev-btn {
+            background-color: var(--bili-blue);
+            color: white;
+            margin-top: 0;
+            width: 100%;
+        }
+
+        .prev-btn:hover {
+            background-color: var(--bili-blue-dark);
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            background: var(--bili-card-bg);
+            border-radius: 8px;
+            margin-top: 20px;
+            color: var(--bili-text-secondary);
+            font-size: 16px;
+        }
+
+        .loading.complete {
+            background: linear-gradient(135deg, var(--bili-pink), #ff9eb5);
+            color: white;
+            font-size: 18px;
+            font-weight: 500;
+            box-shadow: 0 4px 12px rgba(251, 114, 153, 0.4);
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: var(--bili-border);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--bili-pink), var(--bili-pink-hover));
+            transition: width 0.3s;
+        }
+
+        .file-selector {
+            margin-bottom: 20px;
+            padding: 20px;
+            background: var(--bili-card-bg);
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+
+        .file-selector label {
+            display: block;
+            margin-bottom: 10px;
+            font-weight: 500;
+            color: var(--bili-text-primary);
+        }
+
+        .file-selector select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--bili-border);
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+            background: white;
+            cursor: pointer;
+        }
+
+        .file-selector select:focus {
+            outline: none;
+            border-color: var(--bili-blue);
+        }
+
+        .file-info {
+            margin-top: 15px;
+            padding: 15px;
+            background: var(--bili-bg);
+            border-radius: 6px;
+            font-size: 13px;
+        }
+
+        .file-info p {
+            margin: 8px 0;
+            color: var(--bili-text-secondary);
+        }
+
+        .file-info strong {
+            color: var(--bili-text-primary);
+        }
+
+        #refresh-files-btn {
+            background: var(--bili-bg);
+            border: 1px solid var(--bili-border);
+            color: var(--bili-text-secondary);
+        }
+
+        #refresh-files-btn:hover {
+            background: var(--bili-border);
+            color: var(--bili-text-primary);
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <h1>标注工具</h1>
+            <p id="current-file-display" style="color: #666; font-size: 14px; margin: 5px 0 0 0;">当前文件：<span id="current-file-name">-</span></p>
+        </div>
+        <div class="count-display">
+            <div class="number" id="completed-count">0</div>
+            <div class="label">已完成 / <span id="total-count-header">0</span></div>
+        </div>
+    </div>
+
+    <div class="file-selector">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <label for="file-select">选择要标注的文件:</label>
+            <button class="btn" id="refresh-files-btn" style="padding: 5px 10px; font-size: 12px; width: auto; margin: 0;">⟳ 刷新列表</button>
+        </div>
+        <select id="file-select"></select>
+        <div class="file-info" id="file-info" style="display: none;">
+            <p>输出文件：<span id="output-file"></span></p>
+            <p>总数：<span id="file-total">0</span> | 已完成：<span id="file-completed">0</span> | 剩余：<span id="file-remaining">0</span></p>
+        </div>
+    </div>
+
+    <div class="upload-section">
+        <div id="loading" class="loading">加载中...</div>
+        <div id="stats-info" style="display: none;">
+            <p>剩余：<span id="remaining-count">0</span> 条</p>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container" id="main-content" style="display: none;">
+        <div class="progress" style="margin-bottom: 10px; font-size: 14px; color: #666;">
+            当前：第 <span id="current-index" style="font-weight: bold; color: #1976D2;">0</span> 条 / 共 <span id="remaining-total" style="font-weight: bold; color: #666;">0</span> 条
+        </div>
+        <div class="image-section">
+            <div class="image-container">
+                <img id="image-preview" src="" alt="图片预览">
+                <div id="bounding-box"></div>
+            </div>
+        </div>
+
+        <div class="info-section">
+            <div class="form-group">
+                <label>坐标:</label>
+                <input type="text" id="coord-input" readonly>
+            </div>
+
+            <div class="form-group">
+                <label>GPT 回答 (可编辑):</label>
+                <input type="text" id="gpt-value-input">
+            </div>
+
+            <button class="btn prev-btn" id="prev-btn">← 上一条</button>
+            <button class="btn btn-primary" id="confirm-btn">✓ 确定 (保存并下一条)</button>
+
+            <div class="toast" id="toast">✓ 已保存</div>
+
+            <div class="stats">
+                <p><strong>图片路径:</strong> <span id="image-path" style="font-size: 12px; word-break: break-all;"></span></p>
+                <p><strong>图片尺寸:</strong> <span id="image-dims">-</span></p>
+                <p><strong>human 问题:</strong></p>
+                <p id="human-question"></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let allData = [];
+        let currentIndex = 0;
+        let basePath = '/api/images/';
+        let stats = { total: 0, completed: 0, remaining: 0 };
+        let currentFile = null;
+
+        // ========== API 请求包装函数（自动处理 Session）==========
+        let sessionId = localStorage.getItem('sessionId') || null;
+
+        function apiFetch(url, options = {}) {
+            const headers = {
+                ...(options.headers || {}),
+            };
+
+            // 自动添加 Session ID
+            if (sessionId) {
+                headers['X-Session-ID'] = sessionId;
+            }
+
+            return fetch(url, {
+                ...options,
+                headers,
+                credentials: 'include',
+            })
+            .then(res => res.json());
+        }
+
+        // 拖拽和缩放相关变量
+        let isDragging = false;
+        let isResizing = false;
+        let resizeHandle = null;
+        let dragStartX = 0;
+        let dragStartY = 0;
+        let dragStartCoords = [];
+        let currentCoords = [];
+
+        const loading = document.getElementById('loading');
+        const statsInfo = document.getElementById('stats-info');
+        const mainContent = document.getElementById('main-content');
+        const imagePreview = document.getElementById('image-preview');
+        const boundingBox = document.getElementById('bounding-box');
+        const coordInput = document.getElementById('coord-input');
+        const gptValueInput = document.getElementById('gpt-value-input');
+        const confirmBtn = document.getElementById('confirm-btn');
+        const prevBtn = document.getElementById('prev-btn');
+        const currentIndexSpan = document.getElementById('current-index');
+        const remainingTotalSpan = document.getElementById('remaining-total');
+        const humanQuestion = document.getElementById('human-question');
+        const imageDimsSpan = document.getElementById('image-dims');
+        const imagePathSpan = document.getElementById('image-path');
+        const completedCount = document.getElementById('completed-count');
+        const totalCountHeader = document.getElementById('total-count-header');
+        const remainingCount = document.getElementById('remaining-count');
+        const progressFill = document.getElementById('progress-fill');
+        const toast = document.getElementById('toast');
+        const fileSelect = document.getElementById('file-select');
+        const fileInfo = document.getElementById('file-info');
+        const outputFileSpan = document.getElementById('output-file');
+        const fileTotalSpan = document.getElementById('file-total');
+        const fileCompletedSpan = document.getElementById('file-completed');
+        const fileRemainingSpan = document.getElementById('file-remaining');
+        const currentFileNameSpan = document.getElementById('current-file-name');
+
+        loadFiles();
+
+        function showToast() {
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 2000);
+        }
+
+        function showCompleteToast() {
+            loading.textContent = '🎉 当前文件已全部标注完成！';
+            loading.classList.add('complete');
+            loading.style.display = 'block';
+        }
+
+        function loadFiles() {
+            apiFetch('/api/files')
+                .then(data => {
+                    fileSelect.innerHTML = '';
+                    data.files.forEach(f => {
+                        const option = document.createElement('option');
+                        option.value = f.filename;
+                        option.textContent = `${f.filename} (完成：${f.completed}/${f.total}, 剩余：${f.remaining})`;
+                        fileSelect.appendChild(option);
+                    });
+
+                    if (data.files.length > 0) {
+                        const lastFile = localStorage.getItem('currentFile');
+                        if (lastFile && data.files.some(f => f.filename === lastFile)) {
+                            fileSelect.value = lastFile;
+                        } else {
+                            fileSelect.value = data.files[0].filename;
+                        }
+                        selectFile(fileSelect.value);
+                    } else {
+                        loading.textContent = '没有找到 JSONL 文件！';
+                        loading.style.display = 'block';
+                    }
+                })
+                .catch(err => {
+                    console.error('加载文件列表失败:', err);
+                    loading.textContent = '加载文件列表失败，请刷新页面重试';
+                    loading.style.display = 'block';
+                });
+        }
+
+        function selectFile(filename) {
+            apiFetch('/api/select_file', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename: filename })
+            })
+            .then(data => {
+                if (data.success) {
+                    currentFile = filename;
+                    localStorage.setItem('currentFile', filename);
+                    updateFileInfo();
+                    loadData();
+                } else {
+                    console.error('选择文件失败:', data.error);
+                }
+            })
+            .catch(err => {
+                console.error('选择文件失败:', err);
+            });
+        }
+
+        function updateFileInfo() {
+            apiFetch('/api/current_file')
+                .then(data => {
+                    if (data.selected) {
+                        currentFileNameSpan.textContent = data.selected;
+                        outputFileSpan.textContent = data.output_file;
+                        fileTotalSpan.textContent = data.total;
+                        fileCompletedSpan.textContent = data.completed;
+                        fileRemainingSpan.textContent = data.remaining;
+                        fileInfo.style.display = 'block';
+                    }
+                })
+                .catch(err => {
+                    console.error('获取文件信息失败:', err);
+                });
+        }
+
+        fileSelect.addEventListener('change', function() {
+            selectFile(this.value);
+        });
+
+        document.getElementById('refresh-files-btn').addEventListener('click', loadFiles);
+
+        function loadData() {
+            apiFetch('/api/data')
+            .then(data => {
+                // 使用完整数据列表
+                allData = data.items;
+                stats = { total: data.total, completed: data.completed, remaining: data.remaining };
+
+                loading.style.display = 'none';
+
+                // 找到第一个未完成的项目
+                currentIndex = allData.findIndex(item => !item.is_completed);
+
+                // 如果所有数据都已完成，显示完成状态
+                if (currentIndex === -1) {
+                    currentIndex = allData.length;
+                }
+
+                // 如果没有数据，显示完成状态
+                if (allData.length === 0) {
+                    showCompleteToast();
+                    statsInfo.style.display = 'none';
+                    mainContent.style.display = 'none';
+                    imagePreview.src = '';
+                    imageDimsSpan.textContent = '-';
+                    imagePathSpan.textContent = '-';
+                    humanQuestion.textContent = '-';
+                    gptValueInput.value = '';
+                    coordInput.value = '';
+                    boundingBox.classList.remove('selected');
+                    return;
+                }
+
+                statsInfo.style.display = 'block';
+                mainContent.style.display = 'flex';
+                updateStats();
+                loadCurrentItem();
+            })
+            .catch(err => {
+                console.error('加载数据失败:', err);
+                loading.textContent = '加载失败，请刷新页面重试';
+            });
+        }
+
+        function updateStats() {
+            completedCount.textContent = stats.completed;
+            totalCountHeader.textContent = stats.total;
+            remainingCount.textContent = stats.remaining;
+            const progress = stats.total > 0 ? (stats.completed / stats.total) * 100 : 0;
+            progressFill.style.width = progress + '%';
+        }
+
+        function loadCurrentItem() {
+            if (currentIndex < 0 || currentIndex >= allData.length) {
+                showCompleteToast();
+                confirmBtn.disabled = true;
+                prevBtn.disabled = false;
+                updateStats();
+                return;
+            }
+
+            boundingBox.classList.remove('selected');
+            const item = allData[currentIndex];
+            const imagePath = item.images[0];
+            imagePathSpan.textContent = imagePath;
+            imagePreview.src = basePath + imagePath;
+
+            const humanMsg = item.conversations.find(c => c.from === 'human');
+            let coords = [];
+            if (humanMsg) {
+                const match = humanMsg.value.match(/\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\]/);
+                if (match) {
+                    coords = [parseInt(match[1]), parseInt(match[2]), parseInt(match[3]), parseInt(match[4])];
+                }
+            }
+            coordInput.value = JSON.stringify(coords);
+
+            imagePreview.onload = function() {
+                imageDimsSpan.textContent = imagePreview.naturalWidth + ' x ' + imagePreview.naturalHeight;
+                if (coords.length === 4) {
+                    currentCoords = [coords[0], coords[1], coords[2], coords[3]];
+                    initBoundingBox();
+                    updateBoundingBox();
+                }
+            };
+
+            if (humanMsg) {
+                humanQuestion.textContent = humanMsg.value;
+            }
+
+            const gptMsg = item.conversations.find(c => c.from === 'gpt');
+            if (gptMsg) {
+                gptValueInput.value = gptMsg.value;
+            }
+
+            currentIndexSpan.textContent = (item.index || currentIndex) + 1;
+            remainingTotalSpan.textContent = stats.total;
+            confirmBtn.disabled = false;
+            prevBtn.disabled = (currentIndex === 0);
+        }
+
+        let isSaving = false;
+
+        function saveCurrentAndNext() {
+            if (isSaving) return;
+            isSaving = true;
+            confirmBtn.disabled = true;
+
+            const item = allData[currentIndex];
+            const gptMsg = item.conversations.find(c => c.from === 'gpt');
+            if (gptMsg) {
+                gptMsg.value = gptValueInput.value;
+            }
+
+            const humanMsg = item.conversations.find(c => c.from === 'human');
+            if (humanMsg && currentCoords.length === 4) {
+                const intCoords = currentCoords.map(c => Math.round(c));
+                humanMsg.value = humanMsg.value.replace(
+                    /\[\d+,\s*\d+,\s*\d+,\s*\d+\]/,
+                    `[${intCoords[0]}, ${intCoords[1]}, ${intCoords[2]}, ${intCoords[3]}]`
+                );
+            }
+
+            // 更新当前项的 is_completed 状态
+            item.is_completed = true;
+
+            const itemToSave = { ...item };
+
+            apiFetch('/api/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(itemToSave)
+            })
+            .then(data => {
+                if (data.success) {
+                    showToast();
+                    stats.completed++;
+                    stats.remaining--;
+
+                    // 找到下一个未完成的项目
+                    let nextIndex = -1;
+                    for (let i = currentIndex + 1; i < allData.length; i++) {
+                        if (!allData[i].is_completed) {
+                            nextIndex = i;
+                            break;
+                        }
+                    }
+
+                    // 如果后面没有未完成的，检查前面是否有
+                    if (nextIndex === -1) {
+                        for (let i = 0; i < currentIndex; i++) {
+                            if (!allData[i].is_completed) {
+                                nextIndex = i;
+                                break;
+                            }
+                        }
+                    }
+
+                    // 如果全部完成了，显示完成状态
+                    if (nextIndex === -1) {
+                        showCompleteToast();
+                        confirmBtn.disabled = true;
+                        prevBtn.disabled = false;
+                    } else {
+                        currentIndex = nextIndex;
+                        loadCurrentItem();
+                    }
+                    updateStats();
+                } else {
+                    console.error('保存失败:', data.error);
+                    alert('保存失败：' + (data.error || '未知错误'));
+                }
+            })
+            .catch(err => {
+                console.error('保存异常:', err);
+            })
+            .finally(() => {
+                isSaving = false;
+                confirmBtn.disabled = false;
+            });
+        }
+
+        confirmBtn.addEventListener('click', saveCurrentAndNext);
+        prevBtn.addEventListener('click', () => { if (currentIndex > 0) { currentIndex--; loadCurrentItem(); } });
+        gptValueInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') saveCurrentAndNext(); });
+
+        // ========== 拖拽和缩放功能 ==========
+
+        function initBoundingBox() {
+            boundingBox.querySelectorAll('.resize-handle').forEach(h => h.remove());
+
+            const handles = [
+                { name: 'nw', style: { left: '0', top: '0', cursor: 'nw-resize' } },
+                { name: 'n', style: { left: '50%', top: '0', cursor: 'n-resize' } },
+                { name: 'ne', style: { right: '0', top: '0', cursor: 'ne-resize' } },
+                { name: 'e', style: { right: '0', top: '50%', cursor: 'e-resize' } },
+                { name: 'se', style: { right: '0', bottom: '0', cursor: 'se-resize' } },
+                { name: 's', style: { left: '50%', bottom: '0', cursor: 's-resize' } },
+                { name: 'sw', style: { left: '0', bottom: '0', cursor: 'sw-resize' } },
+                { name: 'w', style: { left: '0', top: '50%', cursor: 'w-resize' } }
+            ];
+
+            handles.forEach(h => {
+                const handle = document.createElement('div');
+                handle.className = 'resize-handle';
+                handle.dataset.handle = h.name;
+                handle.style.left = h.style.left;
+                handle.style.top = h.style.top;
+                handle.style.right = h.style.right;
+                handle.style.bottom = h.style.bottom;
+                handle.style.cursor = h.style.cursor;
+                if (h.name === 'nw') { handle.style.left = '-4px'; handle.style.top = '-4px'; }
+                if (h.name === 'n') { handle.style.left = '50%'; handle.style.top = '-4px'; handle.style.marginLeft = '-4px'; }
+                if (h.name === 'ne') { handle.style.right = '-4px'; handle.style.top = '-4px'; }
+                if (h.name === 'e') { handle.style.right = '-4px'; handle.style.top = '50%'; handle.style.marginTop = '-4px'; }
+                if (h.name === 'se') { handle.style.right = '-4px'; handle.style.bottom = '-4px'; }
+                if (h.name === 's') { handle.style.left = '50%'; handle.style.bottom = '-4px'; handle.style.marginLeft = '-4px'; }
+                if (h.name === 'sw') { handle.style.left = '-4px'; handle.style.bottom = '-4px'; }
+                if (h.name === 'w') { handle.style.left = '-4px'; handle.style.top = '50%'; handle.style.marginTop = '-4px'; }
+                boundingBox.appendChild(handle);
+            });
+        }
+
+        function updateBoundingBox() {
+            if (!imagePreview || !imagePreview.naturalWidth) return;
+
+            const imgRect = imagePreview.getBoundingClientRect();
+            const scaleX = imgRect.width / imagePreview.naturalWidth;
+            const scaleY = imgRect.height / imagePreview.naturalHeight;
+
+            const x1 = currentCoords[0] * scaleX;
+            const y1 = currentCoords[1] * scaleY;
+            const x2 = currentCoords[2] * scaleX;
+            const y2 = currentCoords[3] * scaleY;
+
+            boundingBox.style.left = x1 + 'px';
+            boundingBox.style.top = y1 + 'px';
+            boundingBox.style.width = (x2 - x1) + 'px';
+            boundingBox.style.height = (y2 - y1) + 'px';
+
+            coordInput.value = `[${currentCoords[0]}, ${currentCoords[1]}, ${currentCoords[2]}, ${currentCoords[3]}]`;
+        }
+
+        function handleMouseDown(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            boundingBox.classList.add('selected');
+
+            const target = e.target;
+            if (target.classList.contains('resize-handle')) {
+                isResizing = true;
+                resizeHandle = target.dataset.handle;
+            } else {
+                isDragging = true;
+            }
+
+            dragStartX = e.clientX;
+            dragStartY = e.clientY;
+            dragStartCoords = [...currentCoords];
+
+            document.addEventListener('mousemove', handleMouseMove);
+            document.addEventListener('mouseup', handleMouseUp);
+        }
+
+        function handleMouseMove(e) {
+            if (!isDragging && !isResizing) return;
+            e.preventDefault();
+
+            const imgRect = imagePreview.getBoundingClientRect();
+            const scaleX = imgRect.width / imagePreview.naturalWidth;
+            const scaleY = imgRect.height / imagePreview.naturalHeight;
+
+            const deltaX = (e.clientX - dragStartX) / scaleX;
+            const deltaY = (e.clientY - dragStartY) / scaleY;
+
+            if (isDragging) {
+                const [x1, y1, x2, y2] = dragStartCoords;
+                const width = x2 - x1;
+                const height = y2 - y1;
+
+                let newX1 = Math.max(0, Math.round(x1 + deltaX));
+                let newY1 = Math.max(0, Math.round(y1 + deltaY));
+                let newX2 = Math.min(imagePreview.naturalWidth, Math.round(newX1 + width));
+                let newY2 = Math.min(imagePreview.naturalHeight, Math.round(newY1 + height));
+
+                newX1 = Math.max(0, newX2 - width);
+                newY1 = Math.max(0, newY2 - height);
+
+                currentCoords = [newX1, newY1, newX2, newY2];
+                updateBoundingBox();
+            } else if (isResizing) {
+                const [x1, y1, x2, y2] = dragStartCoords;
+
+                switch (resizeHandle) {
+                    case 'nw':
+                        currentCoords = [
+                            Math.max(0, Math.round(x1 + deltaX)),
+                            Math.max(0, Math.round(y1 + deltaY)),
+                            x2, y2
+                        ];
+                        if (currentCoords[0] >= currentCoords[2]) currentCoords[0] = currentCoords[2] - 1;
+                        if (currentCoords[1] >= currentCoords[3]) currentCoords[1] = currentCoords[3] - 1;
+                        break;
+                    case 'n':
+                        currentCoords = [x1, Math.max(0, Math.round(y1 + deltaY)), x2, y2];
+                        if (currentCoords[1] >= currentCoords[3]) currentCoords[1] = currentCoords[3] - 1;
+                        break;
+                    case 'ne':
+                        currentCoords = [
+                            x1,
+                            Math.max(0, Math.round(y1 + deltaY)),
+                            Math.min(imagePreview.naturalWidth, Math.round(x2 + deltaX)),
+                            y2
+                        ];
+                        if (currentCoords[2] <= currentCoords[0]) currentCoords[2] = currentCoords[0] + 1;
+                        if (currentCoords[1] >= currentCoords[3]) currentCoords[1] = currentCoords[3] - 1;
+                        break;
+                    case 'e':
+                        currentCoords = [x1, y1, Math.min(imagePreview.naturalWidth, Math.round(x2 + deltaX)), y2];
+                        if (currentCoords[2] <= currentCoords[0]) currentCoords[2] = currentCoords[0] + 1;
+                        break;
+                    case 'se':
+                        currentCoords = [
+                            x1, y1,
+                            Math.min(imagePreview.naturalWidth, Math.round(x2 + deltaX)),
+                            Math.min(imagePreview.naturalHeight, Math.round(y2 + deltaY))
+                        ];
+                        if (currentCoords[2] <= currentCoords[0]) currentCoords[2] = currentCoords[0] + 1;
+                        if (currentCoords[3] <= currentCoords[1]) currentCoords[3] = currentCoords[1] + 1;
+                        break;
+                    case 's':
+                        currentCoords = [x1, y1, x2, Math.min(imagePreview.naturalHeight, Math.round(y2 + deltaY))];
+                        if (currentCoords[3] <= currentCoords[1]) currentCoords[3] = currentCoords[1] + 1;
+                        break;
+                    case 'sw':
+                        currentCoords = [
+                            Math.max(0, Math.round(x1 + deltaX)),
+                            y1,
+                            x2,
+                            Math.min(imagePreview.naturalHeight, Math.round(y2 + deltaY))
+                        ];
+                        if (currentCoords[0] >= currentCoords[2]) currentCoords[0] = currentCoords[2] - 1;
+                        if (currentCoords[3] <= currentCoords[1]) currentCoords[3] = currentCoords[1] + 1;
+                        break;
+                    case 'w':
+                        currentCoords = [Math.max(0, Math.round(x1 + deltaX)), y1, x2, y2];
+                        if (currentCoords[0] >= currentCoords[2]) currentCoords[0] = currentCoords[2] - 1;
+                        break;
+                }
+                updateBoundingBox();
+            }
+        }
+
+        function handleMouseUp() {
+            isDragging = false;
+            isResizing = false;
+            resizeHandle = null;
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+        }
+
+        boundingBox.addEventListener('mousedown', handleMouseDown);
+
+        document.querySelector('.image-container').addEventListener('click', function(e) {
+            if (e.target.id === 'image-preview') {
+                boundingBox.classList.remove('selected');
+            }
+        });
+    </script>
+</body>
+</html>

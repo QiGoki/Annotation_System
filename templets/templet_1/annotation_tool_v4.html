@@ -1,0 +1,2811 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UI 组件标注工具</title>
+    <style>
+        :root {
+            --bili-pink: #FB7299;
+            --bili-pink-hover: #ff85a7;
+            --bili-blue: #00AEEC;
+            --bili-blue-dark: #0096c7;
+            --bili-bg: #f4f5f7;
+            --bili-card-bg: #ffffff;
+            --bili-text-primary: #212121;
+            --bili-text-secondary: #9499a0;
+            --bili-border: #e3e5e7;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            margin: 0;
+            padding: 15px;
+            background-color: var(--bili-bg);
+            color: var(--bili-text-primary);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 4 列布局 */
+        .main-container {
+            display: flex;
+            gap: 12px;
+            flex: 1;
+            min-height: 0;
+        }
+
+        /* 第 1 列：侧边栏 */
+        .sidebar {
+            width: 240px;
+            flex-shrink: 0;
+            background: var(--bili-card-bg);
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            height: 100%;
+            position: relative;
+            transition: width 0.2s ease;
+        }
+
+        .sidebar.collapsed {
+            width: 0;
+        }
+
+        /* 侧边栏折叠时隐藏内部内容 */
+        .sidebar.collapsed .sidebar-header,
+        .sidebar.collapsed .file-selector,
+        .sidebar.collapsed .file-stats,
+        .sidebar.collapsed .item-lists,
+        .sidebar.collapsed .sidebar-footer {
+            display: none;
+        }
+
+        /* 展开按钮 - 放在侧边栏外部 */
+        .sidebar-toggle-expand {
+            position: fixed;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: var(--bili-card-bg);
+            border: 1px solid var(--bili-border);
+            border-radius: 6px;
+            padding: 12px 8px;
+            cursor: pointer;
+            color: var(--bili-pink);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            font-size: 16px;
+            z-index: 100;
+            display: none;
+            transition: all 0.2s;
+        }
+
+        .sidebar-toggle-expand:hover {
+            background: var(--bili-pink);
+            color: white;
+            border-color: var(--bili-pink);
+        }
+
+        /* 当侧边栏折叠时显示展开按钮 - 通过 body 类控制 */
+        body.sidebar-collapsed .sidebar-toggle-expand {
+            display: block;
+        }
+
+        .sidebar-header {
+            padding: 15px;
+            border-bottom: 1px solid var(--bili-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .sidebar-header h1 {
+            color: var(--bili-pink);
+            font-size: 16px;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .sidebar-toggle {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 4px;
+            color: var(--bili-text-secondary);
+            font-size: 16px;
+        }
+
+        .sidebar-toggle:hover {
+            color: var(--bili-pink);
+        }
+
+        .file-selector {
+            padding: 12px 15px;
+            border-bottom: 1px solid var(--bili-border);
+        }
+
+        .file-selector select {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid var(--bili-border);
+            border-radius: 6px;
+            font-size: 13px;
+            background: white;
+            cursor: pointer;
+        }
+
+        .file-stats {
+            padding: 10px 15px;
+            background: var(--bili-bg);
+            font-size: 12px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .file-stats .stat {
+            text-align: center;
+        }
+
+        .file-stats .stat-value {
+            font-weight: 600;
+            color: var(--bili-pink);
+            font-size: 14px;
+        }
+
+        .file-stats .stat-label {
+            color: var(--bili-text-secondary);
+            font-size: 11px;
+        }
+
+        .item-lists {
+            flex: 1;
+            overflow: auto;
+            padding: 10px 0;
+        }
+
+        .list-section {
+            border-bottom: 1px solid var(--bili-border);
+        }
+
+        .list-header {
+            padding: 10px 15px;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bili-bg);
+        }
+
+        .list-header:hover {
+            background: var(--bili-border);
+        }
+
+        .list-header .count {
+            background: var(--bili-pink);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+        }
+
+        .list-items {
+            flex: 1;
+            overflow: auto;
+        }
+
+        .list-items.collapsed {
+            display: none;
+        }
+
+        .list-item {
+            padding: 8px 15px;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .list-item:hover {
+            background: var(--bili-bg);
+        }
+
+        .list-item.active {
+            background: rgba(251, 114, 153, 0.1);
+            border-left: 3px solid var(--bili-pink);
+        }
+
+        .list-item .index {
+            background: var(--bili-border);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            flex-shrink: 0;
+        }
+
+        .list-item .filename {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            flex: 1;
+            color: var(--bili-text-secondary);
+        }
+
+        .list-item.saved .index {
+            background: rgba(251, 114, 153, 0.2);
+            color: var(--bili-pink);
+        }
+
+        .list-item.saved .filename {
+            color: var(--bili-text-primary);
+        }
+
+        .sidebar-footer {
+            padding: 15px;
+            border-top: 1px solid var(--bili-border);
+            background: var(--bili-bg);
+        }
+
+        .submit-btn {
+            width: 100%;
+            padding: 10px 16px;
+            background: linear-gradient(135deg, var(--bili-pink) 0%, var(--bili-pink-hover) 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 2px 8px rgba(251, 114, 153, 0.3);
+        }
+
+        .submit-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(251, 114, 153, 0.4);
+        }
+
+        .submit-btn:active {
+            transform: translateY(0);
+        }
+
+        .submit-btn:disabled {
+            background: var(--bili-border);
+            box-shadow: none;
+            cursor: not-allowed;
+        }
+
+        .column {
+            background: var(--bili-card-bg);
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* 第一列：图片 */
+        .image-column {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .image-wrapper {
+            flex: 1;
+            overflow: auto;
+            padding: 15px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+        }
+
+        .image-container {
+            position: relative;
+            display: inline-block;
+        }
+
+        .image-canvas {
+            position: relative;
+            display: inline-block;
+            transform-origin: center center;
+            transition: transform 0.1s ease-out;
+        }
+
+        #image-preview {
+            max-width: 100%;
+            display: block;
+            border-radius: 6px;
+            pointer-events: none;
+        }
+
+        /* 第二列：组件树 */
+        .tree-column {
+            width: 350px;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .tree-column .column-header {
+            padding: 10px 15px;
+            border-bottom: 1px solid var(--bili-border);
+            font-weight: 600;
+            font-size: 13px;
+            color: var(--bili-text-primary);
+            flex-shrink: 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .btn-add-root {
+            background: var(--bili-blue);
+            color: white;
+            border: none;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .btn-add-root:hover {
+            background: var(--bili-blue-dark);
+        }
+
+        .tree-content {
+            flex: 1;
+            overflow: auto;
+            padding: 10px;
+        }
+
+        .tree-node {
+            padding: 6px 10px;
+            margin: 2px 0;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: background 0.15s;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+
+        .tree-node:hover {
+            background: var(--bili-bg);
+        }
+
+        .tree-node.selected {
+            background: rgba(251, 114, 153, 0.1);
+            border-left: 3px solid var(--bili-pink);
+        }
+
+        .tree-node .type-badge {
+            background: var(--bili-border);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            color: var(--bili-text-secondary);
+            flex-shrink: 0;
+        }
+
+        .tree-node .text-preview {
+            color: var(--bili-text-secondary);
+            font-size: 12px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .tree-children {
+            margin-left: 18px;
+            border-left: 1px dashed var(--bili-border);
+            padding-left: 6px;
+        }
+
+        .tree-expand {
+            width: 14px;
+            height: 14px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            color: var(--bili-text-secondary);
+            cursor: pointer;
+            user-select: none;
+            flex-shrink: 0;
+        }
+
+        /* 组件树操作按钮 */
+        .tree-actions {
+            margin-left: auto;
+            display: flex;
+            gap: 4px;
+            opacity: 0;
+            transition: opacity 0.2s;
+            flex-shrink: 0;
+        }
+        .tree-node:hover .tree-actions {
+            opacity: 1;
+        }
+        .tree-btn-add, .tree-btn-del {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 2px 6px;
+            font-size: 12px;
+            border-radius: 3px;
+            line-height: 1;
+        }
+        .tree-btn-add { color: var(--bili-blue); }
+        .tree-btn-del { color: var(--bili-pink); }
+        .tree-btn-move { color: var(--bili-text-secondary); }
+        .tree-btn-add:hover { background: rgba(0, 174, 236, 0.1); }
+        .tree-btn-del:hover { background: rgba(251, 114, 153, 0.1); }
+        .tree-btn-move:hover { background: rgba(0, 0, 0, 0.05); color: var(--bili-text-primary); }
+
+        /* 第三列：参数面板 */
+        .params-column {
+            width: 350px;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .params-column .column-header {
+            padding: 10px 15px;
+            border-bottom: 1px solid var(--bili-border);
+            font-weight: 600;
+            font-size: 13px;
+            color: var(--bili-text-primary);
+            flex-shrink: 0;
+        }
+
+        .params-content {
+            flex: 1;
+            overflow: auto;
+            padding: 15px;
+        }
+
+        .no-selection {
+            text-align: center;
+            color: var(--bili-text-secondary);
+            padding: 40px 20px;
+            font-size: 14px;
+            line-height: 1.8;
+        }
+
+        .form-group {
+            margin-bottom: 18px;
+        }
+
+        .form-group label {
+            display: block;
+            font-weight: 600;
+            font-size: 13px;
+            color: var(--bili-text-primary);
+            margin-bottom: 8px;
+        }
+
+        .form-group input[type="text"],
+        .form-group textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--bili-border);
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: var(--bili-pink);
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .coord-inputs {
+            display: flex;
+            gap: 8px;
+        }
+
+        .coord-inputs input {
+            width: 70px !important;
+            text-align: center;
+            font-family: monospace;
+        }
+
+        .type-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 6px;
+            margin-top: 8px;
+        }
+
+        .type-option {
+            padding: 6px 4px;
+            border: 1px solid var(--bili-border);
+            border-radius: 5px;
+            text-align: center;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .type-option:hover {
+            background: var(--bili-bg);
+        }
+
+        .type-option.selected {
+            background: var(--bili-pink);
+            color: white;
+            border-color: var(--bili-pink);
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 8px;
+            padding: 15px;
+            border-top: 1px solid var(--bili-border);
+            background: var(--bili-card-bg);
+        }
+
+        .btn {
+            flex: 1;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--bili-pink);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--bili-pink-hover);
+        }
+
+        .btn-primary:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
+
+        .btn-save {
+            background: var(--bili-pink);
+            color: white;
+        }
+
+        .btn-save:hover {
+            background: var(--bili-pink-hover);
+        }
+
+        .btn-save:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
+
+        .btn-skip {
+            background: var(--bili-blue);
+            color: white;
+        }
+
+        .btn-skip:hover {
+            background: var(--bili-blue-dark);
+        }
+
+        .btn-prev {
+            background: var(--bili-blue);
+            color: white;
+        }
+
+        .btn-prev:hover {
+            background: var(--bili-blue-dark);
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: var(--bili-pink);
+            color: white;
+            padding: 12px 25px;
+            border-radius: 30px;
+            font-size: 14px;
+            font-weight: 500;
+            box-shadow: 0 4px 15px rgba(251, 114, 153, 0.4);
+            opacity: 0;
+            transition: all 0.3s;
+            z-index: 1000;
+        }
+
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+
+        .toast.error {
+            background: #dc3545;
+            box-shadow: 0 4px 15px rgba(220, 53, 69, 0.4);
+        }
+
+        .loading {
+            text-align: center;
+            padding: 50px;
+            background: var(--bili-card-bg);
+            border-radius: 12px;
+            color: var(--bili-text-secondary);
+        }
+
+        .loading.complete {
+            background: linear-gradient(135deg, var(--bili-pink), #ff9eb5);
+            color: white;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        #loading-container {
+            display: none;
+        }
+
+        /* Bbox 样式 - 默认隐藏，只显示选中的 */
+        .bbox-overlay {
+            position: absolute;
+            border: 2px solid var(--bili-pink);
+            background-color: rgba(251, 114, 153, 0.15);
+            box-sizing: border-box;
+            pointer-events: auto;
+            cursor: pointer;
+            display: none;  /* 默认隐藏 */
+        }
+
+        .bbox-overlay.visible {
+            display: block;  /* 选中的显示 */
+        }
+
+        .bbox-overlay .resize-handle {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background: var(--bili-pink);
+            border: 2px solid white;
+            border-radius: 50%;
+            z-index: 10;
+        }
+
+        .bbox-overlay .resize-handle.nw { left: -5px; top: -5px; cursor: nw-resize; }
+        .bbox-overlay .resize-handle.n { left: 50%; top: -5px; cursor: n-resize; transform: translateX(-50%); }
+        .bbox-overlay .resize-handle.ne { right: -5px; top: -5px; cursor: ne-resize; }
+        .bbox-overlay .resize-handle.e { right: -5px; top: 50%; cursor: e-resize; transform: translateY(-50%); }
+        .bbox-overlay .resize-handle.se { right: -5px; bottom: -5px; cursor: se-resize; }
+        .bbox-overlay .resize-handle.s { left: 50%; bottom: -5px; cursor: s-resize; transform: translateX(-50%); }
+        .bbox-overlay .resize-handle.sw { left: -5px; bottom: -5px; cursor: sw-resize; }
+        .bbox-overlay .resize-handle.w { left: -5px; top: 50%; cursor: w-resize; transform: translateY(-50%); }
+
+        .image-info-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 15px;
+            background: var(--bili-bg);
+            border-bottom: 1px solid var(--bili-border);
+            font-size: 12px;
+            color: var(--bili-text-secondary);
+            flex-shrink: 0;
+        }
+
+        .image-info-bar span {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .btn-sm {
+            padding: 4px 10px;
+            font-size: 12px;
+            width: auto;
+            flex: none;
+        }
+
+        /* 放大模式样式 */
+        .zoom-mode #image-container {
+            /* 放大模式下容器内的光标由 JS 动态控制 */
+        }
+        .zoom-dragging #image-container {
+            cursor: grabbing !important;
+        }
+        .zoom-dragging .bbox-overlay {
+            pointer-events: none;
+        }
+        /* 放大模式光标 */
+        .zoom-cursor {
+            cursor: zoom-in !important;
+        }
+        .grabbing-cursor {
+            cursor: grabbing !important;
+        }
+        #zoom-btn.active {
+            background: var(--bili-pink);
+            color: white;
+        }
+        /* 图片支持 transform */
+        #image-preview {
+            transform-origin: center center;
+            transition: transform 0.1s ease-out;
+        }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <!-- 第 1 列：侧边栏 -->
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h1>
+                    <span>🏷️</span>
+                    UI 组件标注
+                    <button class="sidebar-toggle" id="sidebar-toggle-btn" title="折叠/展开">◀</button>
+                </h1>
+            </div>
+
+            <div class="file-selector">
+                <select id="file-select-sidebar"></select>
+            </div>
+
+            <div class="file-stats">
+                <div class="stat">
+                    <div class="stat-value" id="stat-total">0</div>
+                    <div class="stat-label">总数</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="stat-completed">0</div>
+                    <div class="stat-label">已完成</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="stat-remaining">0</div>
+                    <div class="stat-label">未完成</div>
+                </div>
+            </div>
+
+            <div class="item-lists">
+                <!-- 已完成列表 -->
+                <div class="list-section">
+                    <div class="list-header" id="completed-list-header">
+                        <span>✓ 已完成</span>
+                        <span class="count" id="completed-count">0</span>
+                    </div>
+                    <div class="list-items" id="completed-list-items"></div>
+                </div>
+
+                <!-- 未完成列表 -->
+                <div class="list-section">
+                    <div class="list-header" id="remaining-list-header">
+                        <span>○ 未完成</span>
+                        <span class="count" id="remaining-count">0</span>
+                    </div>
+                    <div class="list-items" id="remaining-list-items"></div>
+                </div>
+            </div>
+
+            <div class="sidebar-footer">
+                <button class="submit-btn" id="submit-btn">✓ 提交文件</button>
+            </div>
+        </div>
+
+        <!-- 展开按钮（侧边栏外部） -->
+        <button class="sidebar-toggle-expand" id="sidebar-toggle-expand" title="展开侧边栏">▶</button>
+
+        <!-- 第 2 列：图片 -->
+        <div class="column image-column">
+            <div class="image-info-bar">
+                <span id="image-path-display">-</span>
+                <span id="image-dims-display">-</span>
+                <button class="btn btn-secondary btn-sm" id="zoom-btn" title="打开放大模式（z）">🔍</button>
+                <button class="btn btn-secondary btn-sm" id="zoom-reset-btn" title="重置缩放">100%</button>
+                <button class="btn btn-secondary btn-sm" id="toggle-all-bboxes-btn" title="显示/隐藏所有框">显示全部</button>
+            </div>
+            <div class="image-wrapper">
+                <div class="image-container" id="image-container">
+                    <div class="image-canvas" id="image-canvas">
+                        <img id="image-preview" src="" alt="图片预览">
+                        <div id="bbox-overlays"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 第 3 列：组件树 -->
+        <div class="column tree-column">
+            <div class="column-header">
+                组件树
+                <button class="btn-add-root" id="add-root-component-btn" title="添加根组件">+ 添加根组件</button>
+            </div>
+            <div class="tree-content" id="tree-container"></div>
+        </div>
+
+        <!-- 第 4 列：参数面板 -->
+        <div class="column params-column">
+            <div class="column-header">组件参数</div>
+            <div class="params-content" id="validation-content">
+                <div class="no-selection">
+                    <p>请点击图片或组件树<br>选择要检查的组件</p>
+                </div>
+            </div>
+            <div class="btn-group">
+                <button class="btn btn-prev" id="prev-btn">← 上一条</button>
+                <button class="btn btn-save" id="save-btn">✓ 保存</button>
+                <button class="btn btn-skip" id="next-btn">⏭ 下一条</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="loading-container">
+        <div class="loading" id="loading">加载中...</div>
+    </div>
+
+    <div class="toast" id="toast">✓ 已保存</div>
+    <div class="toast error" id="toast-error"></div>
+
+    <script>
+        // ========== 全局状态 ==========
+        // 生成或获取持久化 SESSION_ID（使用 localStorage 保证刷新后不变）
+        let SESSION_ID = localStorage.getItem('annotation_session_id');
+        if (!SESSION_ID) {
+            SESSION_ID = Date.now().toString(36) + Math.random().toString(36).substr(2);
+            localStorage.setItem('annotation_session_id', SESSION_ID);
+        }
+
+        // 文件锁相关
+        let lockedFiles = new Set();  // 当前 session 锁定的文件
+        let heartbeatInterval = null;  // 心跳定时器
+
+        // 心跳：每 30 秒刷新一次锁
+        function startHeartbeat() {
+            if (heartbeatInterval) clearInterval(heartbeatInterval);
+            heartbeatInterval = setInterval(() => {
+                if (currentFile && lockedFiles.has(currentFile)) {
+                    fetch('/api/heartbeat', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ filename: currentFile, sessionId: SESSION_ID })
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (!data.success) {
+                            // 锁丢失，提示用户
+                            showErrorToast('锁已丢失，文件可能已被其他会话编辑');
+                            releaseFileLock(currentFile);
+                        }
+                    })
+                    .catch(err => console.error('心跳失败:', err));
+                }
+            }, 30000);
+        }
+
+        function stopHeartbeat() {
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+                heartbeatInterval = null;
+            }
+        }
+
+        // 获取文件锁
+        function acquireFileLock(filename) {
+            return fetch('/api/lock', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename: filename, sessionId: SESSION_ID })
+            })
+            .then(res => res.json());
+        }
+
+        // 释放文件锁
+        function releaseFileLock(filename) {
+            if (!lockedFiles.has(filename)) return Promise.resolve();
+
+            fetch('/api/unlock', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename: filename, sessionId: SESSION_ID })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    lockedFiles.delete(filename);
+                }
+            });
+        }
+
+        // 刷新文件锁状态显示
+        function refreshFileLockStatus() {
+            const options = fileSelectSidebar.querySelectorAll('option');
+            options.forEach(opt => {
+                if (!opt.value) return;  // 跳过默认选项
+                const isLocked = lockedFiles.has(opt.value);
+                if (isLocked) {
+                    opt.textContent = opt.textContent.replace(/\s*\(锁定\)/g, '') + ' (锁定)';
+                } else {
+                    opt.textContent = opt.textContent.replace(/\s*\(锁定\)/g, '');
+                }
+            });
+        }
+
+        // 页面关闭前释放所有锁
+        window.addEventListener('beforeunload', () => {
+            lockedFiles.forEach(filename => {
+                // 使用 sendBeacon 确保请求发送
+                navigator.sendBeacon('/api/unlock', JSON.stringify({
+                    filename: filename,
+                    sessionId: SESSION_ID
+                }));
+            });
+            stopHeartbeat();
+        });
+
+        // 使用 Map 存储每个文件的独立状态，避免多标签页状态污染
+        const fileStates = new Map();  // { filename: { allData, jsonlData, currentIndex, stats, savedIndices, componentModifications, expandedPaths } }
+        let currentFile = null;  // 当前正在编辑的文件名
+
+        // 获取或创建文件状态
+        function getFileState(filename) {
+            if (!fileStates.has(filename)) {
+                fileStates.set(filename, {
+                    allData: [],
+                    jsonlData: [],
+                    currentIndex: 0,
+                    stats: { completed: 0, total: 0, remaining: 0 },
+                    savedIndices: new Set(),
+                    componentModifications: {},
+                    expandedPaths: {},
+                    lastUpdateTime: Date.now()
+                });
+            }
+            return fileStates.get(filename);
+        }
+
+        // 当前文件状态的快捷访问
+        function getCurrentState() {
+            if (!currentFile) return null;
+            return fileStates.get(currentFile);
+        }
+
+        // 组件状态（全局共享，不影响数据一致性）
+        let selectedComponent = null;  // { path: [...], component: {...} }
+        let showAllBboxes = false;  // 是否显示所有框
+        let listExpanded = { completed: true, remaining: true };  // 列表展开状态
+
+        // 当前条目是否已保存
+        let currentSaved = false;
+
+        // DOM 引用
+        const loading = document.getElementById('loading');
+        const loadingContainer = document.getElementById('loading-container');
+        const imagePreview = document.getElementById('image-preview');
+        const imageCanvas = document.getElementById('image-canvas');
+        const bboxOverlays = document.getElementById('bbox-overlays');
+        const treeContainer = document.getElementById('tree-container');
+        const validationContent = document.getElementById('validation-content');
+
+        // 侧边栏 DOM
+        const sidebar = document.getElementById('sidebar');
+        const sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
+        const fileSelectSidebar = document.getElementById('file-select-sidebar');
+        const statTotal = document.getElementById('stat-total');
+        const statCompleted = document.getElementById('stat-completed');
+        const statRemaining = document.getElementById('stat-remaining');
+        const completedCount = document.getElementById('completed-count');
+        const remainingCount = document.getElementById('remaining-count');
+        const completedListItems = document.getElementById('completed-list-items');
+        const remainingListItems = document.getElementById('remaining-list-items');
+        const completedListHeader = document.getElementById('completed-list-header');
+        const remainingListHeader = document.getElementById('remaining-list-header');
+        const submitBtn = document.getElementById('submit-btn');
+
+        // 图片信息
+        const imagePathDisplay = document.getElementById('image-path-display');
+        const imageDimsDisplay = document.getElementById('image-dims-display');
+
+        // 按钮
+        const toast = document.getElementById('toast');
+        const saveBtn = document.getElementById('save-btn');
+        const nextBtn = document.getElementById('next-btn');
+        const prevBtn = document.getElementById('prev-btn');
+        const toggleAllBboxesBtn = document.getElementById('toggle-all-bboxes-btn');
+        const zoomBtn = document.getElementById('zoom-btn');
+        const zoomResetBtn = document.getElementById('zoom-reset-btn');
+
+        // ========== 工具函数 ==========
+        function getPathKey(path) {
+            return path.join('-');
+        }
+
+        function findComponent(components, path) {
+            let current = components;
+            for (const index of path) {
+                if (Array.isArray(current)) {
+                    current = current[index];
+                } else if (current?.children && Array.isArray(current.children)) {
+                    current = current.children[index];
+                }
+            }
+            return current;
+        }
+
+        function deepClone(obj) {
+            return JSON.parse(JSON.stringify(obj));
+        }
+
+        // 从完整路径提取简短文件名（用于列表展示）
+        function getShortFilename(fullPath) {
+            if (!fullPath) return 'unnamed';
+            // 去掉目录路径
+            const baseName = fullPath.split('/').pop();
+            // 去掉扩展名
+            return baseName.replace(/\.[^.]+$/, '');
+        }
+
+        // ========== API 请求包装函数 ==========
+        function apiFetch(url, options = {}) {
+            return fetch(url, {
+                ...(options || {}),
+            })
+            .then(res => res.json());
+        }
+
+        // ========== 文件选择 ==========
+        loadFiles();
+
+        // 监听侧边栏文件选择变化
+        fileSelectSidebar.addEventListener('change', function() {
+            if (this.value) {
+                loadData(this.value);
+            }
+        });
+
+        function loadFiles() {
+            apiFetch('/api/files')
+                .then(data => {
+                    fileSelectSidebar.innerHTML = '';
+                    // 添加默认空选项，防止自动选择
+                    const defaultOption = document.createElement('option');
+                    defaultOption.value = '';
+                    defaultOption.textContent = '—— 选择文件 ——';
+                    fileSelectSidebar.appendChild(defaultOption);
+
+                    data.files.forEach(f => {
+                        const option = document.createElement('option');
+                        option.value = f.filename;
+                        // 如果文件被其他 session 锁定，显示锁定标记并禁用
+                        if (f.locked && f.locked_by !== SESSION_ID) {
+                            option.textContent = `${f.filename} (${f.completed}/${f.total}) - 被锁定`;
+                            option.disabled = true;
+                        } else {
+                            option.textContent = `${f.filename} (${f.completed}/${f.total})`;
+                        }
+                        fileSelectSidebar.appendChild(option);
+                    });
+
+                    // 不自动加载文件，等待用户手动选择
+                    loading.textContent = '请选择要编辑的文件';
+                    loadingContainer.style.display = 'block';
+                })
+                .catch(err => {
+                    console.error('加载文件列表失败:', err);
+                    loading.textContent = '加载文件列表失败';
+                    loadingContainer.style.display = 'block';
+                });
+        }
+
+        // ========== 数据加载 ==========
+        function loadData(filename) {
+            if (!filename) {
+                return;  // 没有文件名时不加载
+            }
+
+            // 先尝试获取文件锁
+            acquireFileLock(filename)
+                .then(result => {
+                    // 处理获取锁失败的情况
+                    if (!result) {
+                        showErrorToast('获取锁失败，请稍后重试');
+                        fileSelectSidebar.value = currentFile || '';
+                        return;
+                    }
+
+                    if (result.success === false) {
+                        // 获取锁失败，显示错误并重置选择
+                        showErrorToast(`文件被锁定：${result.message || '未知错误'}`);
+                        fileSelectSidebar.value = currentFile || '';
+                        return;
+                    }
+
+                    // 成功获取锁（result.success === true）
+                    lockedFiles.add(filename);
+                    startHeartbeat();
+                    refreshFileLockStatus();
+
+                    // 切换到新文件前，释放旧文件的锁并保存状态
+                    if (currentFile && currentFile !== filename) {
+                        releaseFileLock(currentFile);
+                        lockedFiles.delete(currentFile);
+                        const prevState = getFileState(currentFile);
+                        if (prevState) {
+                            prevState.lastUpdateTime = Date.now();
+                        }
+                    }
+
+                    // 获取或创建新文件的状态
+                    const state = getFileState(filename);
+
+                    // 更新当前文件
+                    currentFile = filename;
+                    localStorage.setItem('currentFile', filename);
+
+                    loadingContainer.style.display = 'block';
+                    loading.textContent = '加载中...';
+
+                    // 带 session ID 用于验证
+                    const loadSessionId = SESSION_ID;
+                    const loadTimestamp = Date.now();
+
+                    apiFetch(`/api/data?filename=${encodeURIComponent(filename)}`)
+                        .then(data => {
+                            // 验证：如果加载过程中切换了文件，丢弃此结果
+                            if (currentFile !== filename) {
+                                console.warn('加载完成后发现文件已切换，丢弃旧数据');
+                                return;
+                            }
+
+                            // 更新文件状态
+                            state.allData = data.items;
+                            state.stats.total = data.total;
+                            state.stats.completed = data.completed;
+                            state.stats.remaining = data.remaining;
+                            state.lastUpdateTime = Date.now();
+
+                            // 构建已保存索引集合
+                            state.savedIndices.clear();
+                            state.allData.forEach((item, index) => {
+                                if (item._saved) {
+                                    state.savedIndices.add(index);
+                                }
+                            });
+
+                            loadingContainer.style.display = 'none';
+
+                            // 找第一个未完成的项目
+                            state.currentIndex = state.allData.findIndex(item => !item._saved);
+                            if (state.currentIndex === -1) {
+                                state.currentIndex = 0;
+                            }
+
+                            renderSidebarLists();
+                            updateSidebarStats();
+
+                            if (state.currentIndex >= state.allData.length) {
+                                showCompleteToast();
+                                return;
+                            }
+
+                            loadCurrentItem();
+                        })
+                        .catch(err => {
+                            console.error('加载数据失败:', err);
+                            loading.textContent = '加载失败';
+                        });
+                })
+                .catch(err => {
+                    console.error('获取锁失败:', err);
+                    showErrorToast(`无法获取文件锁：${err.message || '请稍后重试'}`);
+                    fileSelectSidebar.value = currentFile || '';
+                });
+        }
+
+        function updateSidebarStats() {
+            const state = getCurrentState();
+            if (!state) return;
+            statTotal.textContent = state.stats.total;
+            statCompleted.textContent = state.stats.completed;
+            statRemaining.textContent = state.stats.remaining;
+            completedCount.textContent = state.stats.completed;
+            remainingCount.textContent = state.stats.remaining;
+        }
+
+        function renderSidebarLists() {
+            const state = getCurrentState();
+            if (!state) return;
+
+            // 渲染已完成列表
+            completedListItems.innerHTML = '';
+            state.allData.forEach((item, index) => {
+                if (item._saved) {
+                    const li = document.createElement('div');
+                    li.className = 'list-item saved';
+                    li.innerHTML = `
+                        <span class="index">${index + 1}</span>
+                        <span class="filename" title="${item.image || 'unnamed'}">${getShortFilename(item.image)}</span>
+                    `;
+                    li.addEventListener('click', () => {
+                        state.currentIndex = index;
+                        loadCurrentItem();
+                        updateActiveListItem();
+                    });
+                    completedListItems.appendChild(li);
+                }
+            });
+
+            // 渲染未完成列表
+            remainingListItems.innerHTML = '';
+            state.allData.forEach((item, index) => {
+                if (!item._saved) {
+                    const li = document.createElement('div');
+                    li.className = 'list-item';
+                    li.innerHTML = `
+                        <span class="index">${index + 1}</span>
+                        <span class="filename" title="${item.image || 'unnamed'}">${getShortFilename(item.image)}</span>
+                    `;
+                    li.addEventListener('click', () => {
+                        state.currentIndex = index;
+                        loadCurrentItem();
+                        updateActiveListItem();
+                    });
+                    remainingListItems.appendChild(li);
+                }
+            });
+
+            updateActiveListItem();
+        }
+
+        function updateActiveListItem() {
+            const state = getCurrentState();
+            if (!state) return;
+
+            document.querySelectorAll('.list-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            const activeItems = document.querySelectorAll('.list-item');
+            activeItems.forEach(item => {
+                const index = parseInt(item.querySelector('.index').textContent) - 1;
+                if (index === state.currentIndex) {
+                    item.classList.add('active');
+                    item.scrollIntoView({ block: 'nearest' });
+                }
+            });
+        }
+
+        // 列表展开/折叠
+        completedListHeader.addEventListener('click', () => {
+            listExpanded.completed = !listExpanded.completed;
+            completedListItems.classList.toggle('collapsed', !listExpanded.completed);
+        });
+
+        remainingListHeader.addEventListener('click', () => {
+            listExpanded.remaining = !listExpanded.remaining;
+            remainingListItems.classList.toggle('collapsed', !listExpanded.remaining);
+        });
+
+        // 侧边栏折叠
+        sidebarToggleBtn.addEventListener('click', () => {
+            sidebar.classList.toggle('collapsed');
+            sidebarToggleBtn.textContent = sidebar.classList.contains('collapsed') ? '▶' : '◀';
+            document.body.classList.toggle('sidebar-collapsed', sidebar.classList.contains('collapsed'));
+        });
+
+        // 折叠时展开按钮
+        document.getElementById('sidebar-toggle-expand').addEventListener('click', () => {
+            sidebar.classList.remove('collapsed');
+            sidebarToggleBtn.textContent = '◀';
+            document.body.classList.remove('sidebar-collapsed');
+        });
+
+        function updateStatusBadge() {
+            const state = getCurrentState();
+            const statusBadge = document.getElementById('current-status-badge');
+            if (!statusBadge || !state) return;
+            const item = state.allData[state.currentIndex];
+            if (item && item._saved) {
+                statusBadge.textContent = '✓ 已保存';
+                statusBadge.className = 'status-badge completed';
+            } else {
+                statusBadge.textContent = '未保存';
+                statusBadge.className = 'status-badge pending';
+            }
+        }
+
+        function loadCurrentItem() {
+            const state = getCurrentState();
+            if (!state || state.currentIndex < 0 || state.currentIndex >= state.allData.length) {
+                showCompleteToast();
+                saveBtn.disabled = true;
+                nextBtn.disabled = true;
+                return;
+            }
+
+            const item = state.allData[state.currentIndex];
+            const imageFilename = item.image.split('/').pop();
+
+            imagePathDisplay.textContent = imageFilename;
+            imagePreview.src = '/api/images/' + imageFilename;
+
+            // 重置状态 - 只重置当前文件的状态
+            bboxOverlays.innerHTML = '';
+            treeContainer.innerHTML = '';
+            state.componentModifications = {};
+            state.expandedPaths = {};
+            selectedComponent = null;
+            showResizeHandles = false;  // 重置调整手柄状态
+            currentSaved = false;
+            // 重置缩放状态
+            zoomMode = false;
+            zoomLevel = 1;
+            imageTranslate = { x: 0, y: 0 };
+            updateZoomTransform();
+            document.body.classList.remove('zoom-mode');
+            zoomBtn.classList.remove('active');
+            zoomBtn.textContent = '🔍';
+
+            // 捕获当前索引，防止异步回调中使用过期的值
+            const currentIndexForCallback = state.currentIndex;
+
+            if (item.components && Array.isArray(item.components)) {
+                let bboxesRendered = false;  // 防止重复渲染
+
+                imagePreview.onload = function() {
+                    if (bboxesRendered) return;  // 已经渲染过，跳过
+                    // 验证：如果加载过程中切换了条目，丢弃此结果
+                    if (state.currentIndex !== currentIndexForCallback) return;
+                    bboxesRendered = true;
+                    imageDimsDisplay.textContent = `${imagePreview.naturalWidth} x ${imagePreview.naturalHeight}`;
+                    renderBboxes(item.components, []);
+                    renderTree(item.components, [], treeContainer);
+                };
+                // 处理缓存图片
+                if (imagePreview.complete) {
+                    imagePreview.onload();
+                }
+            } else {
+                imageDimsDisplay.textContent = '-';
+                treeContainer.innerHTML = '<div class="no-selection">没有组件数据</div>';
+            }
+
+            renderValidationPanel();
+            saveBtn.disabled = false;
+            nextBtn.disabled = false;
+            prevBtn.disabled = (state.currentIndex === 0);
+            updateSidebarStats();
+            updateActiveListItem();
+        }
+
+        // ========== 渲染 Bbox（默认隐藏） ==========
+        function renderBboxes(components, parentPath, container = bboxOverlays) {
+            if (!Array.isArray(components)) return;
+
+            const imgWidth = imagePreview.naturalWidth;
+            const imgHeight = imagePreview.naturalHeight;
+
+            components.forEach((comp, index) => {
+                const path = [...parentPath, index];
+
+                if (comp.bbox && Array.isArray(comp.bbox) && comp.bbox.length === 4) {
+                    const [x1, y1, x2, y2] = comp.bbox;
+                    const overlay = document.createElement('div');
+                    overlay.className = 'bbox-overlay';  // 默认隐藏
+                    overlay.dataset.path = JSON.stringify(path);
+
+                    // 基于原始图片尺寸计算位置（相对于 image-canvas）
+                    overlay.style.left = x1 + 'px';
+                    overlay.style.top = y1 + 'px';
+                    overlay.style.width = (x2 - x1) + 'px';
+                    overlay.style.height = (y2 - y1) + 'px';
+
+                    overlay.innerHTML = `
+                        <div class="resize-handle nw" data-handle="nw"></div>
+                        <div class="resize-handle n" data-handle="n"></div>
+                        <div class="resize-handle ne" data-handle="ne"></div>
+                        <div class="resize-handle e" data-handle="e"></div>
+                        <div class="resize-handle se" data-handle="se"></div>
+                        <div class="resize-handle s" data-handle="s"></div>
+                        <div class="resize-handle sw" data-handle="sw"></div>
+                        <div class="resize-handle w" data-handle="w"></div>
+                    `;
+
+                    overlay.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        selectComponentByPathWithHandles(path);
+                    });
+
+                    container.appendChild(overlay);
+                }
+
+                // 递归处理子组件
+                if (comp.children && Array.isArray(comp.children)) {
+                    renderBboxes(comp.children, path, container);
+                }
+            });
+        }
+
+        // 状态：是否显示调整手柄
+        let showResizeHandles = false;
+
+        // 放大模式状态
+        let zoomMode = false;  // 是否处于放大模式
+        let zoomLevel = 1;     // 当前缩放级别
+        let isPanning = false; // 是否正在拖拽
+        let hasPanned = false; // 是否发生了拖拽（用于阻止 click 事件）
+        let panStart = { x: 0, y: 0 };
+        let imageTranslate = { x: 0, y: 0 };
+
+        function updateBboxVisibility() {
+            const state = getCurrentState();
+            document.querySelectorAll('.bbox-overlay').forEach(overlay => {
+                const path = JSON.parse(overlay.dataset.path);
+                const pathKey = getPathKey(path);
+                const isSelected = selectedComponent && getPathKey(selectedComponent.path) === pathKey;
+
+                if (showAllBboxes || isSelected) {
+                    overlay.classList.add('visible');
+                    if (isSelected && showResizeHandles) {
+                        overlay.classList.add('selected');
+                        addResizeHandles(overlay);
+                    } else {
+                        overlay.classList.remove('selected');
+                        // 移除调整手柄
+                        overlay.querySelectorAll('.resize-handle').forEach(h => h.remove());
+                    }
+                } else {
+                    overlay.classList.remove('visible', 'selected');
+                    // 移除调整手柄
+                    overlay.querySelectorAll('.resize-handle').forEach(h => h.remove());
+                }
+            });
+        }
+
+        function addResizeHandles(overlay) {
+            // 如果已经有手柄，不再添加
+            if (overlay.querySelector('.resize-handle')) return;
+
+            overlay.innerHTML = `
+                <div class="resize-handle nw" data-handle="nw"></div>
+                <div class="resize-handle n" data-handle="n"></div>
+                <div class="resize-handle ne" data-handle="ne"></div>
+                <div class="resize-handle e" data-handle="e"></div>
+                <div class="resize-handle se" data-handle="se"></div>
+                <div class="resize-handle s" data-handle="s"></div>
+                <div class="resize-handle sw" data-handle="sw"></div>
+                <div class="resize-handle w" data-handle="w"></div>
+            `;
+        }
+
+        // ========== 渲染组件树 ==========
+        function renderTree(components, parentPath, container, expand = true) {
+            const state = getCurrentState();
+            if (!state || !Array.isArray(components)) return;
+
+            components.forEach((comp, index) => {
+                const path = [...parentPath, index];
+                const pathKey = getPathKey(path);
+                const node = document.createElement('div');
+                node.className = 'tree-node';
+                node.dataset.path = JSON.stringify(path);
+
+                const hasChildren = comp.children && Array.isArray(comp.children) && comp.children.length > 0;
+                const isExpanded = state.expandedPaths[pathKey] !== false;  // 默认展开
+
+                const expandIcon = document.createElement('span');
+                expandIcon.className = 'tree-expand';
+                expandIcon.textContent = hasChildren ? (isExpanded ? '▼' : '▶') : '•';
+                expandIcon.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    // 捕获当前索引，验证是否仍然有效
+                    const currentIndexSnapshot = state.currentIndex;
+                    state.expandedPaths[pathKey] = !isExpanded;
+                    // 验证：如果切换了条目，取消重新渲染
+                    if (currentIndexSnapshot !== state.currentIndex) return;
+                    // 重新渲染树
+                    const item = state.allData[state.currentIndex];
+                    treeContainer.innerHTML = '';
+                    renderTree(item.components, [], treeContainer);
+                });
+                node.appendChild(expandIcon);
+
+                const typeBadge = document.createElement('span');
+                typeBadge.className = 'type-badge';
+                typeBadge.textContent = comp.type || '?';
+                node.appendChild(typeBadge);
+
+                const textPreview = document.createElement('span');
+                textPreview.className = 'text-preview';
+                textPreview.textContent = (comp.text || '').substring(0, 20) || '';
+                node.appendChild(textPreview);
+
+                // 添加操作按钮
+                const actionSpan = document.createElement('span');
+                actionSpan.className = 'tree-actions';
+                actionSpan.innerHTML = `
+                    <button class="tree-btn-move" title="上移">↑</button>
+                    <button class="tree-btn-move" title="下移">↓</button>
+                    <button class="tree-btn-add" title="添加子组件">+</button>
+                    <button class="tree-btn-del" title="删除组件">−</button>
+                `;
+
+                // 上移按钮
+                const moveUpBtn = actionSpan.querySelector('button[title="上移"]');
+                moveUpBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    moveComponent(path, -1);
+                });
+
+                // 下移按钮
+                const moveDownBtn = actionSpan.querySelector('button[title="下移"]');
+                moveDownBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    moveComponent(path, 1);
+                });
+
+                // 添加按钮
+                actionSpan.querySelector('.tree-btn-add').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    addComponent(path);
+                });
+
+                // 删除按钮
+                actionSpan.querySelector('.tree-btn-del').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (confirm('确定删除此组件？')) {
+                        removeComponent(path);
+                    }
+                });
+
+                node.appendChild(actionSpan);
+
+                node.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    selectComponentByPath(path);
+                });
+
+                container.appendChild(node);
+
+                if (hasChildren && isExpanded) {
+                    const childrenContainer = document.createElement('div');
+                    childrenContainer.className = 'tree-children';
+                    renderTree(comp.children, path, childrenContainer);
+                    container.appendChild(childrenContainer);
+                }
+            });
+        }
+
+        // ========== 组件选择 ==========
+        function selectComponentByPath(path) {
+            const state = getCurrentState();
+            if (!state) return;
+
+            // 点击单个组件时，如果处于"显示全部"模式，则关闭该模式
+            if (showAllBboxes) {
+                showAllBboxes = false;
+                toggleAllBboxesBtn.textContent = '显示全部';
+            }
+
+            const item = state.allData[state.currentIndex];
+            const comp = findComponent(item.components, path);
+            if (!comp) return;
+
+            selectedComponent = { path: [...path], component: deepClone(comp) };
+
+            // 应用之前的修改
+            const pathKey = getPathKey(path);
+            if (state.componentModifications[pathKey]) {
+                const mod = state.componentModifications[pathKey];
+                if (mod.bbox) selectedComponent.component.bbox = mod.bbox;
+                if (mod.type) selectedComponent.component.type = mod.type;
+                if (mod.text !== undefined) selectedComponent.component.text = mod.text;
+            }
+
+            // 更新 UI
+            document.querySelectorAll('.tree-node').forEach(n => n.classList.remove('selected'));
+            const treeNode = document.querySelector(`.tree-node[data-path='${JSON.stringify(path)}']`);
+            if (treeNode) treeNode.classList.add('selected');
+
+            // 通过组件树选中时，不显示调整手柄
+            showResizeHandles = false;
+
+            updateBboxVisibility();
+            renderValidationPanel();
+        }
+
+        // 通过点击 bbox 框选中组件（显示调整手柄）
+        function selectComponentByPathWithHandles(path) {
+            const state = getCurrentState();
+            if (!state) return;
+
+            if (showAllBboxes) {
+                showAllBboxes = false;
+                toggleAllBboxesBtn.textContent = '显示全部';
+            }
+
+            const item = state.allData[state.currentIndex];
+            const comp = findComponent(item.components, path);
+            if (!comp) return;
+
+            selectedComponent = { path: [...path], component: deepClone(comp) };
+
+            const pathKey = getPathKey(path);
+            if (state.componentModifications[pathKey]) {
+                const mod = state.componentModifications[pathKey];
+                if (mod.bbox) selectedComponent.component.bbox = mod.bbox;
+                if (mod.type) selectedComponent.component.type = mod.type;
+                if (mod.text !== undefined) selectedComponent.component.text = mod.text;
+            }
+
+            document.querySelectorAll('.tree-node').forEach(n => n.classList.remove('selected'));
+            const treeNode = document.querySelector(`.tree-node[data-path='${JSON.stringify(path)}']`);
+            if (treeNode) treeNode.classList.add('selected');
+
+            // 通过点击框选中，显示调整手柄
+            showResizeHandles = true;
+
+            updateBboxVisibility();
+            renderValidationPanel();
+        }
+
+        // ========== 组件增删功能 ==========
+
+        /**
+         * 扁平化组件树，建立两个映射：
+         * 1. pathKey → 组件引用
+         * 2. 组件引用 → path
+         */
+        function flattenComponents(components, parentPath = []) {
+            const pathKeyToComp = {};  // pathKey → component
+            const compToPath = new Map();  // component → path
+
+            if (!Array.isArray(components)) return { pathKeyToComp, compToPath };
+
+            components.forEach((comp, index) => {
+                const path = [...parentPath, index];
+                const pathKey = getPathKey(path);
+
+                pathKeyToComp[pathKey] = comp;
+                compToPath.set(comp, path);
+
+                // 递归处理子组件
+                if (comp.children && Array.isArray(comp.children)) {
+                    const childMaps = flattenComponents(comp.children, path);
+                    Object.assign(pathKeyToComp, childMaps.pathKeyToComp);
+                    // Map.forEach 的回调参数是 (value, key)，即 (path, comp)
+                    childMaps.compToPath.forEach((path, comp) => compToPath.set(comp, path));
+                }
+            });
+
+            return { pathKeyToComp, compToPath };
+        }
+
+        /**
+         * 更新修改记录的 pathKey
+         * @param {Object} oldPathKeyToComp - 旧的 pathKey → 组件引用 映射
+         * @param {Map} newCompToPath - 新的 组件引用→path 映射
+         */
+        function updateModificationsPath(oldPathKeyToComp, newCompToPath) {
+            const state = getCurrentState();
+            if (!state) return;
+
+            const newMods = {};
+
+            // 遍历旧的修改记录
+            for (const oldPathKey in state.componentModifications) {
+                const oldComp = oldPathKeyToComp[oldPathKey];
+
+                if (!oldComp) {
+                    continue;
+                }
+
+                const newPath = newCompToPath.get(oldComp);
+
+                if (newPath) {
+                    const newPathKey = getPathKey(newPath);
+                    newMods[newPathKey] = state.componentModifications[oldPathKey];
+                }
+            }
+
+            state.componentModifications = newMods;
+        }
+
+        /**
+         * 将修改记录应用到组件数据
+         */
+        function applyModificationsToComponents(components, modifications) {
+            for (const pathKey in modifications) {
+                const path = pathKey.split('-').map(Number);
+                const mods = modifications[pathKey];
+                const comp = findComponent(components, path);
+                if (comp) {
+                    if (mods.bbox) comp.bbox = mods.bbox;
+                    if (mods.type) comp.type = mods.type;
+                    if (mods.text !== undefined) comp.text = mods.text;
+                }
+            }
+        }
+
+        function addComponent(parentPath) {
+            const state = getCurrentState();
+            if (!state) return;
+
+            const item = state.allData[state.currentIndex];
+
+            // 保存旧的 pathKey → 组件引用 映射
+            const oldMaps = flattenComponents(item.components);
+
+            const parentComp = findComponent(item.components, parentPath);
+            if (!parentComp) {
+                return;
+            }
+
+            // 确保有 children 数组
+            if (!parentComp.children) parentComp.children = [];
+
+            // 创建新组件
+            const newComponent = {
+                type: 'button',
+                text: '新组件',
+                bbox: [0, 0, 100, 50],
+                children: []
+            };
+
+            parentComp.children.push(newComponent);
+
+            // 建立新的 组件引用→path 映射
+            const newMaps = flattenComponents(item.components);
+
+            // 更新修改记录的 pathKey
+            updateModificationsPath(oldMaps.pathKeyToComp, newMaps.compToPath);
+
+            // 将修改记录应用到组件数据（用于渲染）
+            applyModificationsToComponents(item.components, state.componentModifications);
+
+            // 更新 selectedComponent 的路径（如果它仍然存在于新结构中）
+            if (selectedComponent) {
+                const oldPathKey = getPathKey(selectedComponent.path);
+                const oldComp = oldMaps.pathKeyToComp[oldPathKey];
+                if (oldComp) {
+                    const newPath = newMaps.compToPath.get(oldComp);
+                    if (newPath) {
+                        selectedComponent.path = newPath;
+                    }
+                }
+            }
+
+            // 清空容器并重新渲染
+            treeContainer.innerHTML = '';
+            bboxOverlays.innerHTML = '';
+            renderTree(item.components, [], treeContainer);
+            renderBboxes(item.components, [], bboxOverlays);
+        }
+
+        /**
+         * 在根目录添加组件
+         */
+        function addComponentAtRoot() {
+            const state = getCurrentState();
+            if (!state) return;
+
+            const item = state.allData[state.currentIndex];
+
+            // 保存旧的 pathKey → 组件引用 映射
+            const oldMaps = flattenComponents(item.components);
+
+            // 创建新组件
+            const newComponent = {
+                type: 'button',
+                text: '新组件',
+                bbox: [0, 0, 100, 50],
+                children: []
+            };
+
+            // 添加到根目录
+            if (!item.components) item.components = [];
+            item.components.push(newComponent);
+
+            // 建立新的 组件引用→path 映射
+            const newMaps = flattenComponents(item.components);
+
+            // 更新修改记录的 pathKey
+            updateModificationsPath(oldMaps.pathKeyToComp, newMaps.compToPath);
+
+            // 将修改记录应用到组件数据（用于渲染）
+            applyModificationsToComponents(item.components, state.componentModifications);
+
+            // 清空容器并重新渲染
+            treeContainer.innerHTML = '';
+            bboxOverlays.innerHTML = '';
+            renderTree(item.components, [], treeContainer);
+            renderBboxes(item.components, [], bboxOverlays);
+        }
+
+        function removeComponent(path) {
+            const state = getCurrentState();
+            if (!state || path.length === 0) return;
+
+            const item = state.allData[state.currentIndex];
+
+            // 保存旧的 pathKey → 组件引用 映射
+            const oldMaps = flattenComponents(item.components);
+
+            // 找到父组件和当前组件索引
+            const parentPath = path.slice(0, -1);
+            const index = path[path.length - 1];
+
+            // 获取被删除的组件信息
+            const componentToRemove = findComponent(item.components, path);
+
+            if (parentPath.length === 0) {
+                // 删除根级别组件
+                item.components.splice(index, 1);
+            } else {
+                const parentComp = findComponent(item.components, parentPath);
+                if (parentComp && parentComp.children) {
+                    parentComp.children.splice(index, 1);
+                }
+            }
+
+            // 建立新的 组件引用→path 映射
+            const newMaps = flattenComponents(item.components);
+
+            // 更新修改记录的 pathKey
+            updateModificationsPath(oldMaps.pathKeyToComp, newMaps.compToPath);
+
+            // 将修改记录应用到组件数据（用于渲染）
+            applyModificationsToComponents(item.components, state.componentModifications);
+
+            // 清除选中状态
+            selectedComponent = null;
+
+            // 清空容器并重新渲染
+            treeContainer.innerHTML = '';
+            bboxOverlays.innerHTML = '';
+            renderTree(item.components, [], treeContainer);
+            renderBboxes(item.components, [], bboxOverlays);
+        }
+
+        /**
+         * 在同级内移动组件（上移/下移）
+         * @param {number[]} path - 组件路径
+         * @param {number} direction - 移动方向：-1 上移，1 下移
+         */
+        function moveComponent(path, direction) {
+            const state = getCurrentState();
+            if (!state || path.length === 0) return;
+
+            const item = state.allData[state.currentIndex];
+
+            // 保存旧的 pathKey → 组件引用 映射
+            const oldMaps = flattenComponents(item.components);
+
+            // 找到父组件和当前组件索引
+            const parentPath = path.slice(0, -1);
+            const index = path[path.length - 1];
+
+            // 获取父组件的 children 数组
+            let childrenArray;
+            if (parentPath.length === 0) {
+                // 根级别
+                childrenArray = item.components;
+            } else {
+                const parentComp = findComponent(item.components, parentPath);
+                if (!parentComp || !parentComp.children) return;
+                childrenArray = parentComp.children;
+            }
+
+            // 检查是否可以移动
+            const newIndex = index + direction;
+            if (newIndex < 0 || newIndex >= childrenArray.length) return;
+
+            // 交换两个组件的位置
+            const temp = childrenArray[index];
+            childrenArray[index] = childrenArray[newIndex];
+            childrenArray[newIndex] = temp;
+
+            // 建立新的 组件引用→path 映射
+            const newMaps = flattenComponents(item.components);
+
+            // 更新修改记录的 pathKey
+            updateModificationsPath(oldMaps.pathKeyToComp, newMaps.compToPath);
+
+            // 将修改记录应用到组件数据（用于渲染）
+            applyModificationsToComponents(item.components, state.componentModifications);
+
+            // 更新 selectedComponent 的路径
+            if (selectedComponent) {
+                const oldPathKey = getPathKey(selectedComponent.path);
+                const oldComp = oldMaps.pathKeyToComp[oldPathKey];
+                if (oldComp) {
+                    const newPath = newMaps.compToPath.get(oldComp);
+                    if (newPath) {
+                        selectedComponent.path = newPath;
+                    }
+                }
+            }
+
+            // 清空容器并重新渲染
+            treeContainer.innerHTML = '';
+            bboxOverlays.innerHTML = '';
+            renderTree(item.components, [], treeContainer);
+            renderBboxes(item.components, [], bboxOverlays);
+        }
+
+        // ========== 组件参数面板 ==========
+        function renderValidationPanel() {
+            if (!selectedComponent) {
+                validationContent.innerHTML = `
+                    <div class="no-selection">
+                        <p>请点击图片或组件树<br>选择要检查的组件</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const { path, component } = selectedComponent;
+            const pathKey = getPathKey(path);
+
+            validationContent.innerHTML = `
+                <div class="form-group">
+                    <label>坐标 [x1, y1, x2, y2]:</label>
+                    <div class="coord-inputs">
+                        <input type="text" value="${component.bbox?.[0] || 0}" onchange="updateBboxCoord(0, this.value)">
+                        <input type="text" value="${component.bbox?.[1] || 0}" onchange="updateBboxCoord(1, this.value)">
+                        <input type="text" value="${component.bbox?.[2] || 0}" onchange="updateBboxCoord(2, this.value)">
+                        <input type="text" value="${component.bbox?.[3] || 0}" onchange="updateBboxCoord(3, this.value)">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>文本内容:</label>
+                    <textarea oninput="updateText(this.value)">${component.text || ''}</textarea>
+                </div>
+
+                <div class="form-group">
+                    <label>组件类型:</label>
+                    <input type="text" value="${component.type || ''}" oninput="updateType(this.value)">
+                    <div class="type-grid">
+                        ${['navigation_bar', 'tab_bar', 'toolbar', 'card', 'button', 'text', 'icon', 'input', 'image', 'avatar', 'list_item', 'menu', 'toggle', 'checkbox', 'radio', 'slider', 'progress', 'badge', 'divider', 'spacer', 'other'].map(t =>
+                            `<div class="type-option ${component.type === t ? 'selected' : ''}" onclick="updateType('${t}')">${t}</div>`
+                        ).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function updateBboxCoord(index, value) {
+            if (!selectedComponent) return;
+            const numValue = parseInt(value) || 0;
+            if (!selectedComponent.component.bbox) selectedComponent.component.bbox = [0, 0, 0, 0];
+            selectedComponent.component.bbox[index] = numValue;
+            saveModification('bbox', selectedComponent.component.bbox);
+            updateBboxDisplay();
+        }
+
+        function updateType(value) {
+            if (!selectedComponent) return;
+            selectedComponent.component.type = value;
+            saveModification('type', value);
+
+            // 更新选项样式
+            document.querySelectorAll('.type-option').forEach(opt => {
+                opt.classList.toggle('selected', opt.textContent === value);
+            });
+
+            // 更新组件树显示
+            refreshTreeNode(selectedComponent.path, 'type', value);
+        }
+
+        function updateText(value) {
+            if (!selectedComponent) return;
+            selectedComponent.component.text = value;
+            saveModification('text', value);
+
+            // 更新组件树显示
+            refreshTreeNode(selectedComponent.path, 'text', value);
+        }
+
+        /**
+         * 刷新单个组件节点的显示
+         * @param {number[]} path - 组件路径
+         * @param {string} field - 更新的字段 ('type' | 'text')
+         * @param {any} value - 新值
+         */
+        function refreshTreeNode(path, field, value) {
+            const state = getCurrentState();
+            if (!state) return;
+
+            // 找到对应的树节点
+            const pathKey = getPathKey(path);
+            const treeNode = document.querySelector(`.tree-node[data-path='${JSON.stringify(path)}']`);
+            if (!treeNode) return;
+
+            // 更新节点内容
+            if (field === 'type') {
+                const typeBadge = treeNode.querySelector('.type-badge');
+                if (typeBadge) typeBadge.textContent = value || '?';
+            } else if (field === 'text') {
+                const textPreview = treeNode.querySelector('.text-preview');
+                if (textPreview) textPreview.textContent = (value || '').substring(0, 20);
+            }
+        }
+
+        function saveModification(field, value) {
+            const state = getCurrentState();
+            if (!state || !selectedComponent) return;
+            const pathKey = getPathKey(selectedComponent.path);
+            if (!state.componentModifications[pathKey]) state.componentModifications[pathKey] = {};
+            state.componentModifications[pathKey][field] = value;
+            currentSaved = false;
+            updateStatusBadge();
+        }
+
+        function updateBboxDisplay() {
+            if (!selectedComponent) return;
+            const overlay = document.querySelector(`.bbox-overlay[data-path='${JSON.stringify(selectedComponent.path)}']`);
+            if (!overlay) return;
+
+            const [x1, y1, x2, y2] = selectedComponent.component.bbox;
+
+            // 基于原始图片尺寸计算位置（相对于 image-canvas）
+            overlay.style.left = x1 + 'px';
+            overlay.style.top = y1 + 'px';
+            overlay.style.width = (x2 - x1) + 'px';
+            overlay.style.height = (y2 - y1) + 'px';
+        }
+
+        // ========== 8 点拖拽调整 + 整体拖动 ==========
+        let isDragging = false;
+        let isResizing = false;
+        let resizeHandle = null;
+        let dragStart = { x: 0, y: 0 };
+        let bboxStart = { left: 0, top: 0, width: 0, height: 0 };
+        let currentOverlay = null;
+        let hasDragStarted = false;  // 标记拖拽是否真正开始（防止点击即触发）
+
+        // 获取图片尺寸（原始像素）
+        function getImageBounds() {
+            return {
+                maxX: imagePreview.naturalWidth,
+                maxY: imagePreview.naturalHeight
+            };
+        }
+
+        // 获取当前缩放比例
+        function getCurrentScale() {
+            const imgRect = imagePreview.getBoundingClientRect();
+            return {
+                scaleX: imgRect.width / imagePreview.naturalWidth,
+                scaleY: imgRect.height / imagePreview.naturalHeight
+            };
+        }
+
+        bboxOverlays.addEventListener('mousedown', function(e) {
+            const overlay = e.target.closest('.bbox-overlay');
+            if (!overlay || !overlay.classList.contains('visible')) return;
+
+            const handle = e.target.classList.contains('resize-handle') ? e.target : null;
+
+            // 只在按下鼠标左键时开始拖拽/调整大小
+            if (e.button !== 0) return;
+
+            if (handle) {
+                isResizing = true;
+                resizeHandle = handle.dataset.handle;
+                currentOverlay = overlay;
+            } else {
+                // 点击 bbox 主体，准备拖动整个框（实际拖拽在 mousemove 中开始）
+                isDragging = true;
+                currentOverlay = overlay;
+                // 同时选中该组件
+                const path = JSON.parse(overlay.dataset.path);
+                selectComponentByPathWithHandles(path);
+            }
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            const { scaleX, scaleY } = getCurrentScale();
+
+            dragStart = { x: e.clientX, y: e.clientY };
+            bboxStart = {
+                left: parseFloat(overlay.style.left),
+                top: parseFloat(overlay.style.top),
+                width: parseFloat(overlay.style.width),
+                height: parseFloat(overlay.style.height)
+            };
+
+            // 标记拖拽尚未真正开始，等待 mousemove 确认
+            hasDragStarted = false;
+
+            document.addEventListener('mousemove', handleBboxMousemove);
+            document.addEventListener('mouseup', handleBboxMouseup);
+        });
+
+        function handleBboxMousemove(e) {
+            if ((!isResizing && !isDragging) || !currentOverlay) return;
+            e.preventDefault();
+
+            // 检查鼠标是否移动了（防止点击即触发拖拽）
+            const dx = e.clientX - dragStart.x;
+            const dy = e.clientY - dragStart.y;
+            const movedThreshold = 3;  // 鼠标移动超过 3 像素才开始拖拽
+
+            if (!hasDragStarted) {
+                if (Math.sqrt(dx * dx + dy * dy) < movedThreshold) {
+                    return;  // 移动距离太小，不触发拖拽
+                }
+                hasDragStarted = true;
+            }
+
+            const imgBounds = getImageBounds();
+            const { scaleX, scaleY } = getCurrentScale();
+
+            // 根据缩放比例转换鼠标移动距离
+            const moveDx = dx / scaleX;
+            const moveDy = dy / scaleY;
+
+            if (isDragging) {
+                // 整体拖动 - 限制在图片边界内
+                let newLeft = bboxStart.left + moveDx;
+                let newTop = bboxStart.top + moveDy;
+
+                // 限制左边界
+                newLeft = Math.max(0, Math.min(newLeft, imgBounds.maxX - bboxStart.width));
+                // 限制上边界
+                newTop = Math.max(0, Math.min(newTop, imgBounds.maxY - bboxStart.height));
+
+                currentOverlay.style.left = newLeft + 'px';
+                currentOverlay.style.top = newTop + 'px';
+            } else if (isResizing) {
+                const deltaXPx = dx;
+                const deltaYPx = dy;
+
+                let newLeft = bboxStart.left;
+                let newTop = bboxStart.top;
+                let newWidth = bboxStart.width;
+                let newHeight = bboxStart.height;
+
+                switch (resizeHandle) {
+                    case 'nw':
+                        newLeft = Math.max(0, Math.min(bboxStart.left + deltaXPx, bboxStart.left + bboxStart.width - 10));
+                        newTop = Math.max(0, Math.min(bboxStart.top + deltaYPx, bboxStart.top + bboxStart.height - 10));
+                        newWidth = bboxStart.width - (newLeft - bboxStart.left);
+                        newHeight = bboxStart.height - (newTop - bboxStart.top);
+                        break;
+                    case 'n':
+                        newTop = Math.max(0, Math.min(bboxStart.top + deltaYPx, bboxStart.top + bboxStart.height - 10));
+                        newHeight = bboxStart.height - (newTop - bboxStart.top);
+                        break;
+                    case 'ne':
+                        newTop = Math.max(0, Math.min(bboxStart.top + deltaYPx, bboxStart.top + bboxStart.height - 10));
+                        newWidth = Math.max(10, bboxStart.width + deltaXPx);
+                        newWidth = Math.min(newWidth, imgBounds.maxX - bboxStart.left);
+                        newHeight = bboxStart.height - (newTop - bboxStart.top);
+                        break;
+                    case 'e':
+                        newWidth = Math.max(10, bboxStart.width + deltaXPx);
+                        newWidth = Math.min(newWidth, imgBounds.maxX - bboxStart.left);
+                        break;
+                    case 'se':
+                        newWidth = Math.max(10, bboxStart.width + deltaXPx);
+                        newWidth = Math.min(newWidth, imgBounds.maxX - bboxStart.left);
+                        newHeight = Math.max(10, bboxStart.height + deltaYPx);
+                        newHeight = Math.min(newHeight, imgBounds.maxY - bboxStart.top);
+                        break;
+                    case 's':
+                        newHeight = Math.max(10, bboxStart.height + deltaYPx);
+                        newHeight = Math.min(newHeight, imgBounds.maxY - bboxStart.top);
+                        break;
+                    case 'sw':
+                        newLeft = Math.max(0, Math.min(bboxStart.left + deltaXPx, bboxStart.left + bboxStart.width - 10));
+                        newWidth = bboxStart.width - (newLeft - bboxStart.left);
+                        newHeight = Math.max(10, bboxStart.height + deltaYPx);
+                        newHeight = Math.min(newHeight, imgBounds.maxY - bboxStart.top);
+                        break;
+                    case 'w':
+                        newLeft = Math.max(0, Math.min(bboxStart.left + deltaXPx, bboxStart.left + bboxStart.width - 10));
+                        newWidth = bboxStart.width - (newLeft - bboxStart.left);
+                        break;
+                }
+
+                currentOverlay.style.left = newLeft + 'px';
+                currentOverlay.style.top = newTop + 'px';
+                currentOverlay.style.width = newWidth + 'px';
+                currentOverlay.style.height = newHeight + 'px';
+            }
+        }
+
+        function handleBboxMouseup() {
+            if ((isResizing || isDragging) && currentOverlay && selectedComponent) {
+                // bbox 现在直接使用原始图片坐标，无需转换
+                let x1 = Math.round(parseFloat(currentOverlay.style.left));
+                let y1 = Math.round(parseFloat(currentOverlay.style.top));
+                let x2 = Math.round(parseFloat(currentOverlay.style.left) + parseFloat(currentOverlay.style.width));
+                let y2 = Math.round(parseFloat(currentOverlay.style.top) + parseFloat(currentOverlay.style.height));
+
+                // 确保坐标在有效范围内（不允许负数或超出图片）
+                const imgWidth = imagePreview.naturalWidth;
+                const imgHeight = imagePreview.naturalHeight;
+
+                x1 = Math.max(0, Math.min(x1, imgWidth - 1));
+                y1 = Math.max(0, Math.min(y1, imgHeight - 1));
+                x2 = Math.max(1, Math.min(x2, imgWidth));
+                y2 = Math.max(1, Math.min(y2, imgHeight));
+
+                // 确保 x2 > x1, y2 > y1
+                if (x2 <= x1) x2 = x1 + 1;
+                if (y2 <= y1) y2 = y1 + 1;
+
+                selectedComponent.component.bbox = [x1, y1, x2, y2];
+                saveModification('bbox', [x1, y1, x2, y2]);
+
+                // 更新坐标输入框
+                const inputs = validationContent.querySelectorAll('.coord-inputs input');
+                if (inputs.length === 4) {
+                    inputs[0].value = x1;
+                    inputs[1].value = y1;
+                    inputs[2].value = x2;
+                    inputs[3].value = y2;
+                }
+            }
+
+            isResizing = false;
+            isDragging = false;
+            hasDragStarted = false;
+            resizeHandle = null;
+            currentOverlay = null;
+            document.removeEventListener('mousemove', handleBboxMousemove);
+            document.removeEventListener('mouseup', handleBboxMouseup);
+        }
+
+        // ========== 保存功能 ==========
+        let isSaving = false;
+
+        function saveCurrent() {
+            if (isSaving) return;
+            isSaving = true;
+            saveBtn.disabled = true;
+
+            const state = getCurrentState();
+            if (!state) return;
+
+            // 捕获当前索引，防止异步回调中使用过期的值
+            const indexToSave = state.currentIndex;
+            const item = state.allData[indexToSave];
+
+            // 应用所有修改
+            for (const pathKey in state.componentModifications) {
+                const path = pathKey.split('-').map(Number);
+                const mods = state.componentModifications[pathKey];
+                const comp = findComponent(item.components, path);
+                if (comp) {
+                    if (mods.bbox) comp.bbox = mods.bbox;
+                    if (mods.type) comp.type = mods.type;
+                    if (mods.text !== undefined) comp.text = mods.text;
+                }
+            }
+
+            const itemToSave = { ...item, _index: indexToSave };
+            const filenameToSave = currentFile;
+
+            apiFetch(`/api/save?filename=${encodeURIComponent(filenameToSave)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(itemToSave)
+            })
+            .then(data => {
+                if (data.success) {
+                    // 验证：确保仍然在处理同一个文件
+                    if (currentFile !== filenameToSave) {
+                        console.warn('保存完成后发现文件已切换');
+                        return;
+                    }
+
+                    showToast();
+
+                    // 只有之前未保存过，才更新统计数据
+                    if (!state.savedIndices.has(indexToSave)) {
+                        state.savedIndices.add(indexToSave);
+                        state.allData[indexToSave]._saved = true;
+                        state.stats.completed++;
+                        state.stats.remaining--;
+                    }
+
+                    renderSidebarLists();
+                    updateSidebarStats();
+
+                    // 只有当仍在同一条目时才更新状态
+                    if (state.currentIndex === indexToSave) {
+                        currentSaved = true;
+                        updateStatusBadge();
+                    }
+                } else {
+                    alert('保存失败：' + (data.error || '未知错误'));
+                }
+            })
+            .catch(err => {
+                console.error('保存异常:', err);
+            })
+            .finally(() => {
+                isSaving = false;
+                saveBtn.disabled = false;
+            });
+        }
+
+        function nextItem() {
+            if (isSaving) return;
+            const state = getCurrentState();
+            if (!state) return;
+
+            // 找下一条未完成的项目
+            let nextIndex = -1;
+            for (let i = state.currentIndex + 1; i < state.allData.length; i++) {
+                if (!state.allData[i]._saved) {
+                    nextIndex = i;
+                    break;
+                }
+            }
+            if (nextIndex === -1) {
+                // 没有未完成的项目了
+                showCompleteToast();
+                saveBtn.disabled = true;
+                nextBtn.disabled = true;
+            } else {
+                state.currentIndex = nextIndex;
+                loadCurrentItem();
+                updateSidebarStats();
+                updateActiveListItem();
+            }
+        }
+
+        function saveCurrentAndNext() {
+            if (isSaving) return;
+            isSaving = true;
+            saveBtn.disabled = true;
+
+            const state = getCurrentState();
+            if (!state) return;
+
+            // 捕获当前索引，防止异步回调中使用过期的值
+            const indexToSave = state.currentIndex;
+            const item = state.allData[indexToSave];
+
+            // 应用所有修改
+            for (const pathKey in state.componentModifications) {
+                const path = pathKey.split('-').map(Number);
+                const mods = state.componentModifications[pathKey];
+                const comp = findComponent(item.components, path);
+                if (comp) {
+                    if (mods.bbox) comp.bbox = mods.bbox;
+                    if (mods.type) comp.type = mods.type;
+                    if (mods.text !== undefined) comp.text = mods.text;
+                }
+            }
+
+            const itemToSave = { ...item, _index: indexToSave };
+            const filenameToSave = currentFile;
+
+            apiFetch(`/api/save?filename=${encodeURIComponent(filenameToSave)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(itemToSave)
+            })
+            .then(data => {
+                if (data.success) {
+                    // 验证：确保仍然在处理同一个文件
+                    if (currentFile !== filenameToSave) {
+                        console.warn('保存完成后发现文件已切换');
+                        return;
+                    }
+
+                    showToast();
+
+                    // 只有之前未保存过，才更新统计数据
+                    if (!state.savedIndices.has(indexToSave)) {
+                        state.savedIndices.add(indexToSave);
+                        state.allData[indexToSave]._saved = true;
+                        state.stats.completed++;
+                        state.stats.remaining--;
+                    }
+
+                    renderSidebarLists();
+                    updateSidebarStats();
+
+                    // 找下一条未完成
+                    let nextIndex = -1;
+                    for (let i = indexToSave + 1; i < state.allData.length; i++) {
+                        if (!state.allData[i]._saved) {
+                            nextIndex = i;
+                            break;
+                        }
+                    }
+                    if (nextIndex !== -1) {
+                        state.currentIndex = nextIndex;
+                        loadCurrentItem();
+                    } else {
+                        state.currentIndex++;
+                        if (state.currentIndex >= state.allData.length) {
+                            showCompleteToast();
+                            saveBtn.disabled = true;
+                            nextBtn.disabled = true;
+                        } else {
+                            loadCurrentItem();
+                        }
+                    }
+                } else {
+                    alert('保存失败：' + (data.error || '未知错误'));
+                }
+            })
+            .catch(err => {
+                console.error('保存异常:', err);
+            })
+            .finally(() => {
+                isSaving = false;
+                saveBtn.disabled = false;
+            });
+        }
+
+        function showToast() {
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 2000);
+        }
+
+        function showErrorToast(message) {
+            const errorToast = document.getElementById('toast-error');
+            errorToast.textContent = message;
+            errorToast.classList.add('show');
+            setTimeout(() => errorToast.classList.remove('show'), 3000);
+        }
+
+        function showCompleteToast() {
+            loading.textContent = '🎉 已全部完成！';
+            loading.classList.add('complete');
+            loadingContainer.style.display = 'block';
+        }
+
+        // ========== 事件绑定 ==========
+        saveBtn.addEventListener('click', saveCurrent);
+        nextBtn.addEventListener('click', nextItem);
+        prevBtn.addEventListener('click', () => {
+            const state = getCurrentState();
+            if (!state) return;
+            if (state.currentIndex > 0) {
+                state.currentIndex--;
+                loadCurrentItem();
+                updateSidebarStats();
+                updateActiveListItem();
+            }
+        });
+
+        // 添加根组件按钮
+        document.getElementById('add-root-component-btn').addEventListener('click', addComponentAtRoot);
+
+        // 提交按钮
+        submitBtn.addEventListener('click', () => {
+            if (!currentFile) return;
+
+            apiFetch(`/api/submit?filename=${encodeURIComponent(currentFile)}`, {
+                method: 'POST'
+            })
+            .then(data => {
+                if (data.success) {
+                    alert('✓ 文件已提交到 output 目录');
+                    // 释放文件锁
+                    releaseFileLock(currentFile);
+                    lockedFiles.delete(currentFile);
+                    currentFile = null;
+                    // 刷新文件列表
+                    loadFiles();
+                } else {
+                    alert('提交失败：' + data.error);
+                }
+            })
+            .catch(err => {
+                console.error('提交失败:', err);
+                alert('提交失败：' + err.message);
+            });
+        });
+
+        toggleAllBboxesBtn.addEventListener('click', function() {
+            showAllBboxes = !showAllBboxes;
+            this.textContent = showAllBboxes ? '隐藏全部' : '显示全部';
+
+            // 点击"显示全部"时，清除组件树选中状态和调整手柄
+            if (showAllBboxes) {
+                selectedComponent = null;
+                showResizeHandles = false;
+                // 移除组件树的选中样式
+                document.querySelectorAll('.tree-node.selected').forEach(node => {
+                    node.classList.remove('selected');
+                });
+            }
+
+            updateBboxVisibility();
+            renderValidationPanel();
+        });
+
+        // 点击空白取消选中（放大模式下不响应）
+        document.getElementById('image-container').addEventListener('click', function(e) {
+            // 放大模式下不响应点击空白取消选择
+            if (zoomMode) return;
+
+            // 检查是否点击了 bbox 框（包括其子元素）
+            if (e.target.closest('.bbox-overlay')) return;
+
+            // 点击的是图片容器空白处
+            // 第一次点击空白：取消显示调整手柄
+            if (showResizeHandles) {
+                showResizeHandles = false;
+                updateBboxVisibility();
+                return;
+            }
+            // 第二次点击空白：取消选择
+            selectedComponent = null;
+            updateBboxVisibility();
+            renderValidationPanel();
+        });
+
+        // ========== 键盘方向键微调 bbox ==========
+        document.addEventListener('keydown', function(e) {
+            // 只有在有选中的组件且没有处于输入状态时才响应
+            if (!selectedComponent) return;
+
+            // 如果焦点在输入框或文本域中，不响应方向键
+            const activeElement = document.activeElement;
+            if (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA') {
+                return;
+            }
+
+            const state = getCurrentState();
+            if (!state) return;
+
+            let moved = false;
+            const step = 1;  // 每次移动 1 像素
+
+            switch (e.key) {
+                case 'ArrowUp':
+                    if (selectedComponent.component.bbox[1] >= step) {
+                        selectedComponent.component.bbox[1] -= step;
+                        selectedComponent.component.bbox[3] -= step;
+                        moved = true;
+                    }
+                    break;
+                case 'ArrowDown':
+                    const imgHeight = imagePreview.naturalHeight;
+                    if (selectedComponent.component.bbox[3] < imgHeight) {
+                        selectedComponent.component.bbox[1] += step;
+                        selectedComponent.component.bbox[3] += step;
+                        moved = true;
+                    }
+                    break;
+                case 'ArrowLeft':
+                    if (selectedComponent.component.bbox[0] >= step) {
+                        selectedComponent.component.bbox[0] -= step;
+                        selectedComponent.component.bbox[2] -= step;
+                        moved = true;
+                    }
+                    break;
+                case 'ArrowRight':
+                    const imgWidth = imagePreview.naturalWidth;
+                    if (selectedComponent.component.bbox[2] < imgWidth) {
+                        selectedComponent.component.bbox[0] += step;
+                        selectedComponent.component.bbox[2] += step;
+                        moved = true;
+                    }
+                    break;
+                default:
+                    return;
+            }
+
+            if (moved) {
+                e.preventDefault();
+                e.stopPropagation();
+
+                // 隐藏调整手柄
+                showResizeHandles = false;
+                updateBboxVisibility();
+
+                // 更新 bbox 显示
+                updateBboxDisplay();
+
+                // 同步更新坐标输入框
+                const inputs = validationContent.querySelectorAll('.coord-inputs input');
+                if (inputs.length === 4) {
+                    inputs[0].value = selectedComponent.component.bbox[0];
+                    inputs[1].value = selectedComponent.component.bbox[1];
+                    inputs[2].value = selectedComponent.component.bbox[2];
+                    inputs[3].value = selectedComponent.component.bbox[3];
+                }
+
+                // 保存修改
+                saveModification('bbox', selectedComponent.component.bbox);
+            }
+        });
+
+        // ========== 图片缩放功能 ==========
+
+        // 更新缩放变换
+        function updateZoomTransform() {
+            if (zoomLevel === 1) {
+                imageCanvas.style.transform = 'translate(0px, 0px) scale(1)';
+            } else {
+                imageCanvas.style.transform = `translate(${imageTranslate.x}px, ${imageTranslate.y}px) scale(${zoomLevel})`;
+            }
+            zoomResetBtn.textContent = Math.round(zoomLevel * 100) + '%';
+        }
+
+        // 切换放大模式
+        zoomBtn.addEventListener('click', function() {
+            zoomMode = !zoomMode;
+            if (zoomMode) {
+                document.body.classList.add('zoom-mode');
+                this.classList.add('active');
+                this.textContent = '✕';
+                this.title = '关闭放大模式';
+            } else {
+                document.body.classList.remove('zoom-mode');
+                this.classList.remove('active');
+                this.textContent = '🔍';
+                this.title = '打开放大模式';
+            }
+            // 更新光标
+            updateZoomCursor();
+        });
+
+        // 重置缩放
+        zoomResetBtn.addEventListener('click', function() {
+            zoomLevel = 1;
+            imageTranslate = { x: 0, y: 0 };
+            updateZoomTransform();
+        });
+
+        // 图片容器引用
+        const imageContainer = document.getElementById('image-container');
+
+        // 滚轮缩放 - 直接在 document 上监听，只要鼠标在图片容器上即可
+        let isMouseOverImage = false;
+
+        imageContainer.addEventListener('mouseenter', function() {
+            isMouseOverImage = true;
+        });
+
+        imageContainer.addEventListener('mouseleave', function() {
+            isMouseOverImage = false;
+        });
+
+        imageContainer.addEventListener('wheel', function(e) {
+            if (!zoomMode || !isMouseOverImage) return;
+
+            e.preventDefault();
+
+            const delta = e.deltaY > 0 ? -0.1 : 0.1;
+            const newZoom = Math.max(0.5, Math.min(5, zoomLevel + delta));
+
+            if (newZoom !== zoomLevel) {
+                zoomLevel = newZoom;
+                updateZoomTransform();
+            }
+        }, { passive: false });
+
+        // 在放大模式下，鼠标在图片上时显示 zoom-in 光标
+        imageCanvas.addEventListener('mouseenter', function() {
+            if (zoomMode && !isPanning) {
+                this.classList.add('zoom-cursor');
+            } else {
+                this.classList.remove('zoom-cursor');
+            }
+        });
+
+        imageCanvas.addEventListener('mouseleave', function() {
+            // 鼠标离开图片时恢复默认光标
+            this.classList.remove('zoom-cursor');
+        });
+
+        // 切换放大模式时更新光标
+        function updateZoomCursor() {
+            if (zoomMode && !isPanning) {
+                imageCanvas.classList.add('zoom-cursor');
+            } else {
+                imageCanvas.classList.remove('zoom-cursor');
+            }
+        }
+
+        imageCanvas.addEventListener('mousedown', function(e) {
+            if (!zoomMode) return;
+            // 只有在放大模式下才启用拖拽
+            isPanning = true;
+            panStart = { x: e.clientX - imageTranslate.x, y: e.clientY - imageTranslate.y };
+            this.classList.add('grabbing-cursor');
+            document.body.classList.add('zoom-dragging');
+            e.preventDefault();
+            e.stopPropagation();
+            // 标记拖拽尚未开始
+            hasPanned = false;
+        });
+
+        document.addEventListener('mousemove', function(e) {
+            if (!isPanning) return;
+
+            e.preventDefault();
+            imageTranslate.x = e.clientX - panStart.x;
+            imageTranslate.y = e.clientY - panStart.y;
+            updateZoomTransform();
+            // 标记发生了拖拽
+            hasPanned = true;
+        });
+
+        document.addEventListener('mouseup', function() {
+            if (isPanning) {
+                isPanning = false;
+                document.body.classList.remove('zoom-dragging');
+                // 移除抓手光标
+                if (imageCanvas) {
+                    imageCanvas.classList.remove('grabbing-cursor');
+                }
+                // 恢复 zoom-in 光标
+                if (zoomMode) {
+                    imageCanvas.classList.add('zoom-cursor');
+                }
+            }
+            // 重置拖拽标志
+            hasPanned = false;
+        });
+
+        // 快捷键切换放大模式（z 键）
+        document.addEventListener('keydown', function(e) {
+            // 如果焦点在输入框中，不响应
+            if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') {
+                return;
+            }
+
+            // z 键切换放大模式
+            if (e.key === 'z' || e.key === 'Z') {
+                zoomMode = !zoomMode;
+                if (zoomMode) {
+                    document.body.classList.add('zoom-mode');
+                    zoomBtn.classList.add('active');
+                    zoomBtn.textContent = '✕';
+                    zoomBtn.title = '关闭放大模式';
+                } else {
+                    document.body.classList.remove('zoom-mode');
+                    zoomBtn.classList.remove('active');
+                    zoomBtn.textContent = '🔍';
+                    zoomBtn.title = '打开放大模式';
+                }
+            }
+
+            // Ctrl+0 重置缩放
+            if ((e.key === '0') && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                zoomLevel = 1;
+                imageTranslate = { x: 0, y: 0 };
+                updateZoomTransform();
+            }
+        });
+
+    </script>
+</body>
+</html>
