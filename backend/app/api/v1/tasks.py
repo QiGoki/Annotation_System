@@ -15,7 +15,7 @@ from app.models.user import User
 from app.models.project import Project
 from app.models.task import Task
 from app.models.annotation import Annotation
-from app.schemas.task import TaskResponse, TaskListItem, TaskAssign, TaskStatusUpdate
+from app.schemas.task import TaskResponse, TaskListItem, TaskAssign, TaskStatusUpdate, TaskUpdate
 from app.services.task_service import TaskService
 from app.services.project_service import ProjectService
 from app.services.claim_task_service import ClaimTaskService

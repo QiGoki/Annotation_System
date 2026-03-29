@@ -13,8 +13,8 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = True
 
-    # 数据库配置
-    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/annotation_platform"
+    # 数据库配置 (MySQL)
+    DATABASE_URL: str = "mysql+pymysql://root:password@localhost:3306/annotation_platform"
     DATABASE_POOL_SIZE: int = 10
     DATABASE_MAX_OVERFLOW: int = 20
 

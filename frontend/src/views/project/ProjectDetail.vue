@@ -1,10 +1,9 @@
 <script setup lang="ts">
 /**
- * 项目详情页面 - 含成员管理
+ * 项目详情页面 - StepFun风格
  */
 import { ref, onMounted, computed } from 'vue'
-import { useRoute } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRoute, useRouter } from 'vue-router'
 import { getProjectDetail, getProjectStatistics } from '@/api/project'
 import { getTaskList, claimTask, releaseTask } from '@/api/task'
 import { getProjectMembers, addProjectMember, removeProjectMember, updateMemberRole } from '@/api/project_members'
@@ -13,6 +12,7 @@ import type { Task } from '@/types/task'
 import type { ProjectMember } from '@/api/project_members'
 
 const route = useRoute()
+const router = useRouter()
 const projectId = computed(() => Number(route.params.id))
 
 const project = ref<Project | null>(null)
@@ -23,12 +23,8 @@ const loading = ref(false)
 
 // 成员管理
 const memberDialogVisible = ref(false)
-const userSelectVisible = ref(false)
 const newMemberUserId = ref<number>(0)
 const newMemberRole = ref('member')
-const currentUser = ref({ id: 1, role: 'admin' }) // TODO: 从 store 获取
-
-// 用户列表（用于选择）
 const userList = ref<any[]>([])
 
 const loadProject = async () => {
@@ -38,8 +34,8 @@ const loadProject = async () => {
     statistics.value = await getProjectStatistics(projectId.value)
     await loadTasks()
     await loadMembers()
-  } catch (e: any) {
-    ElMessage.error('加载项目详情失败')
+  } catch (e) {
+    alert('加载项目详情失败')
   } finally {
     loading.value = false
   }
@@ -52,7 +48,7 @@ const loadTasks = async () => {
 const loadMembers = async () => {
   try {
     members.value = await getProjectMembers(projectId.value)
-  } catch (e: any) {
+  } catch (e) {
     // 忽略错误
   }
 }
@@ -61,12 +57,11 @@ const loadUserList = async () => {
   try {
     const { getUserList } = await import('@/api/user')
     userList.value = await getUserList()
-  } catch (e: any) {
-    ElMessage.error('加载用户列表失败')
+  } catch (e) {
+    alert('加载用户列表失败')
   }
 }
 
-// 打开添加成员对话框
 const openAddMemberDialog = () => {
   memberDialogVisible.value = true
   newMemberUserId.value = 0
@@ -74,91 +69,112 @@ const openAddMemberDialog = () => {
   loadUserList()
 }
 
-// 添加成员
 const handleAddMember = async () => {
   if (!newMemberUserId.value) {
-    ElMessage.error('请选择用户')
+    alert('请选择用户')
     return
   }
 
   try {
     await addProjectMember(projectId.value, newMemberUserId.value, newMemberRole.value)
-    ElMessage.success('添加成员成功')
+    alert('添加成员成功')
     memberDialogVisible.value = false
     loadMembers()
   } catch (e: any) {
-    let errorMsg = '添加失败'
-    if (e.response?.data?.detail) {
-      errorMsg = e.response.data.detail
-    }
-    ElMessage.error(errorMsg)
+    alert(e.response?.data?.detail || '添加失败')
   }
 }
 
-// 移除成员
-const handleRemoveMember = async (member: ProjectMember) => {
+const removeConfirm = ref<{ show: boolean; member: ProjectMember | null }>({ show: false, member: null })
+
+const handleRemoveMember = (member: ProjectMember) => {
+  removeConfirm.value = { show: true, member }
+}
+
+const confirmRemoveMember = async () => {
+  if (!removeConfirm.value.member) return
   try {
-    await ElMessageBox.confirm(`确定要移除成员 "${member.username}" 吗？`, '确认移除', {
-      type: 'warning'
-    })
-    await removeProjectMember(projectId.value, member.user_id)
-    ElMessage.success('移除成功')
+    await removeProjectMember(projectId.value, removeConfirm.value.member.user_id)
+    alert('移除成功')
     loadMembers()
-  } catch (e: any) {
-    if (e !== 'cancel') {
-      ElMessage.error('移除失败')
-    }
+  } catch (e) {
+    alert('移除失败')
+  } finally {
+    removeConfirm.value = { show: false, member: null }
   }
 }
 
-// 更新角色
 const handleUpdateRole = async (member: ProjectMember, role: string) => {
   try {
     await updateMemberRole(projectId.value, member.user_id, role)
-    ElMessage.success('更新成功')
+    alert('更新成功')
     loadMembers()
-  } catch (e: any) {
-    ElMessage.error('更新失败')
+  } catch (e) {
+    alert('更新失败')
   }
 }
 
-// 领取任务
-const handleClaim = async (taskId: number) => {
+const claimConfirm = ref<{ show: boolean; taskId: number | null }>({ show: false, taskId: null })
+
+const handleClaim = (taskId: number) => {
+  claimConfirm.value = { show: true, taskId }
+}
+
+const confirmClaim = async () => {
+  if (!claimConfirm.value.taskId) return
   try {
-    await claimTask(taskId)
-    ElMessage.success('领取成功')
+    await claimTask(claimConfirm.value.taskId)
+    alert('领取成功')
     loadTasks()
   } catch (e: any) {
-    let errorMsg = '领取失败'
-    if (e.response?.data?.detail) {
-      errorMsg = e.response.data.detail
-    }
-    ElMessage.error(errorMsg)
+    alert(e.response?.data?.detail || '领取失败')
+  } finally {
+    claimConfirm.value = { show: false, taskId: null }
   }
 }
 
-// 释放任务
-const handleRelease = async (taskId: number) => {
+const releaseConfirm = ref<{ show: boolean; taskId: number | null }>({ show: false, taskId: null })
+
+const handleRelease = (taskId: number) => {
+  releaseConfirm.value = { show: true, taskId }
+}
+
+const confirmRelease = async () => {
+  if (!releaseConfirm.value.taskId) return
   try {
-    await ElMessageBox.confirm('确定要释放此任务吗？', '确认释放', { type: 'warning' })
-    await releaseTask(taskId)
-    ElMessage.success('已释放')
+    await releaseTask(releaseConfirm.value.taskId)
+    alert('已释放')
     loadTasks()
-  } catch (e: any) {
-    if (e !== 'cancel') {
-      ElMessage.error('释放失败')
-    }
+  } catch (e) {
+    alert('释放失败')
+  } finally {
+    releaseConfirm.value = { show: false, taskId: null }
   }
 }
 
-const getStatusTagType = (status: string) => {
-  const map: Record<string, string> = { pending: 'info', doing: 'warning', completed: 'success' }
-  return map[status] || 'info'
+const getStatusClass = (status: string) => {
+  const map: Record<string, string> = {
+    pending: 'tag tag-primary',
+    doing: 'tag tag-warning',
+    completed: 'tag tag-success'
+  }
+  return map[status] || 'tag tag-default'
 }
 
 const getStatusText = (status: string) => {
   const map: Record<string, string> = { pending: '待领取', doing: '标注中', completed: '已完成' }
   return map[status] || status
+}
+
+const formatDate = (dateStr?: string) => {
+  if (!dateStr) return '-'
+  return new Date(dateStr).toLocaleDateString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
 }
 
 const getUserName = (userId: number | null) => {
@@ -173,208 +189,460 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="project-detail">
-    <el-card v-loading="loading">
-      <template #header>
-        <div class="card-header">
-          <h2>{{ project?.name || '项目详情' }}</h2>
-          <div class="header-actions">
-            <el-button type="primary" @click="$router.push(`/projects/${projectId}/configure`)">设计标注页</el-button>
-            <el-button @click="$router.push('/projects')">返回</el-button>
-          </div>
+  <div class="page">
+    <!-- 页面头部 -->
+    <div class="page-header">
+      <div class="page-header-info">
+        <h1 class="page-title">{{ project?.name || '项目详情' }}</h1>
+        <span class="page-subtitle">项目管理</span>
+      </div>
+      <div class="page-header-actions">
+        <button class="btn btn-primary" @click="router.push(`/projects/${projectId}/configure`)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          设计标注页
+        </button>
+        <button class="btn btn-secondary" @click="router.push('/projects')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="19" y1="12" x2="5" y2="12"/>
+            <polyline points="12 19 5 12 12 5"/>
+          </svg>
+          返回
+        </button>
+      </div>
+    </div>
+
+    <!-- 基本信息 -->
+    <div class="card">
+      <h3 class="card-title">基本信息</h3>
+      <div class="info-grid">
+        <div class="info-item">
+          <span class="info-label">项目名称</span>
+          <span class="info-value">{{ project?.name }}</span>
         </div>
-      </template>
+        <div class="info-item full-width">
+          <span class="info-label">项目描述</span>
+          <span class="info-value">{{ project?.description || '暂无描述' }}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">创建时间</span>
+          <span class="info-value">{{ formatDate(project?.created_at) }}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">更新时间</span>
+          <span class="info-value">{{ formatDate(project?.updated_at) }}</span>
+        </div>
+      </div>
+    </div>
 
-      <!-- 基本信息 -->
-      <el-card class="info-card" style="margin-top: 16px">
-        <el-descriptions :column="2">
-          <el-descriptions-item label="项目名称">{{ project?.name }}</el-descriptions-item>
-          <el-descriptions-item label="项目描述" :span="2">{{ project?.description || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="创建时间">{{ project ? new Date(project.created_at).toLocaleString('zh-CN') : '-' }}</el-descriptions-item>
-          <el-descriptions-item label="更新时间">{{ project ? new Date(project.updated_at).toLocaleString('zh-CN') : '-' }}</el-descriptions-item>
-        </el-descriptions>
-      </el-card>
+    <!-- 统计信息 -->
+    <h3 class="section-title">统计信息</h3>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-value">{{ statistics?.total_tasks || 0 }}</div>
+        <div class="stat-label">总任务数</div>
+      </div>
+      <div class="stat-card stat-pending">
+        <div class="stat-value">{{ statistics?.pending_tasks || 0 }}</div>
+        <div class="stat-label">待领取</div>
+      </div>
+      <div class="stat-card stat-doing">
+        <div class="stat-value">{{ statistics?.doing_tasks || 0 }}</div>
+        <div class="stat-label">标注中</div>
+      </div>
+      <div class="stat-card stat-completed">
+        <div class="stat-value">{{ statistics?.completed_tasks || 0 }}</div>
+        <div class="stat-label">已完成</div>
+      </div>
+    </div>
 
-      <!-- 统计信息 -->
-      <h3 class="section-title">统计信息</h3>
-      <el-row :gutter="16" style="margin-top: 16px">
-        <el-col :span="6">
-          <el-card class="stat-card">
-            <el-statistic title="总任务数" :value="statistics?.total_tasks || 0" />
-          </el-card>
-        </el-col>
-        <el-col :span="6">
-          <el-card class="stat-card">
-            <el-statistic title="待领取" :value="statistics?.pending_tasks || 0" />
-          </el-card>
-        </el-col>
-        <el-col :span="6">
-          <el-card class="stat-card">
-            <el-statistic title="标注中" :value="statistics?.doing_tasks || 0" />
-          </el-card>
-        </el-col>
-        <el-col :span="6">
-          <el-card class="stat-card">
-            <el-statistic title="已完成" :value="statistics?.completed_tasks || 0" />
-          </el-card>
-        </el-col>
-      </el-row>
-
-      <!-- 成员管理 -->
+    <!-- 成员管理 -->
+    <div class="section-header">
       <h3 class="section-title">项目成员</h3>
-      <el-card class="members-card" style="margin-top: 16px">
-        <div class="members-header">
-          <span>共 {{ members.length }} 名成员</span>
-          <el-button type="primary" size="small" @click="openAddMemberDialog">添加成员</el-button>
-        </div>
-        <el-table :data="members" size="small" style="margin-top: 12px">
-          <el-table-column prop="username" label="用户名" width="150" />
-          <el-table-column prop="role" label="角色" width="120">
-            <template #default="{ row }">
-              <el-select v-model="row.role" size="small" @change="handleUpdateRole(row, $event)">
-                <el-option label="管理员" value="admin" />
-                <el-option label="成员" value="member" />
-              </el-select>
-            </template>
-          </el-table-column>
-          <el-table-column prop="joined_at" label="加入时间" width="180">
-            <template #default="{ row }">
-              {{ row.joined_at ? new Date(row.joined_at).toLocaleString('zh-CN') : '-' }}
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="100">
-            <template #default="{ row }">
-              <el-button link type="danger" size="small" @click="handleRemoveMember(row)">移除</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </el-card>
+      <button class="btn btn-primary btn-sm" @click="openAddMemberDialog">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="5" x2="12" y2="19"/>
+          <line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        添加成员
+      </button>
+    </div>
+    <div class="card">
+      <div class="member-count">共 {{ members.length }} 名成员</div>
+      <div class="table-container">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>用户名</th>
+              <th>角色</th>
+              <th>加入时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="member in members" :key="member.user_id">
+              <td>{{ member.username }}</td>
+              <td>
+                <select class="role-select" :value="member.role" @change="handleUpdateRole(member, ($event.target as HTMLSelectElement).value)">
+                  <option value="admin">管理员</option>
+                  <option value="member">成员</option>
+                </select>
+              </td>
+              <td>{{ formatDate(member.joined_at) }}</td>
+              <td>
+                <button class="btn btn-danger btn-sm" @click="handleRemoveMember(member)">移除</button>
+              </td>
+            </tr>
+            <tr v-if="members.length === 0">
+              <td colspan="4" class="empty">暂无成员</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
 
-      <!-- 任务列表 -->
-      <h3 class="section-title">任务列表</h3>
-      <el-card class="task-card" style="margin-top: 16px">
-        <el-table :data="tasks" style="margin-top: 0" border>
-        <el-table-column prop="id" label="ID" width="60" />
-        <el-table-column label="数据源" min-width="200">
-          <template #default="{ row }">
-            <span v-if="row.data_source?.type === 'image'">
-              <el-icon><picture /></el-icon> {{ row.data_source.filename || '图像' }}
-            </span>
-            <span v-else-if="row.data_source?.type === 'text'">
-              <el-icon><document /></el-icon> {{ (row.data_source.content || '').substring(0, 30) }}...
-            </span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="status" label="状态" width="90">
-          <template #default="{ row }">
-            <el-tag :type="getStatusTagType(row.status)">{{ getStatusText(row.status) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="领取人" width="120">
-          <template #default="{ row }">
-            {{ getUserName(row.assigned_to) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="created_at" label="创建时间" width="160">
-          <template #default="{ row }">
-            {{ new Date(row.created_at).toLocaleString('zh-CN') }}
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
-          <template #default="{ row }">
-            <el-button
-              v-if="row.status === 'pending'"
-              type="primary"
-              size="small"
-              @click="handleClaim(row.id)"
-            >领取</el-button>
-            <template v-else-if="row.status === 'doing'">
-              <el-button type="warning" size="small" @click="handleRelease(row.id)">释放</el-button>
-              <el-button
-                type="primary"
-                size="small"
-                @click="$router.push(`/annotate/${row.id}`)"
-              >标注</el-button>
-            </template>
-            <el-tag v-else type="success" size="small">已完成</el-tag>
-          </template>
-        </el-table-column>
-      </el-table>
-      </el-card>
-    </el-card>
+    <!-- 任务列表 -->
+    <h3 class="section-title">任务列表</h3>
+    <div class="card table-card">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>数据源</th>
+            <th>状态</th>
+            <th>领取人</th>
+            <th>创建时间</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="task in tasks" :key="task.id">
+            <td>{{ task.id }}</td>
+            <td>
+              <div class="data-source">
+                <span v-if="task.data_source?.type === 'image'">{{ task.data_source.filename || '图像' }}</span>
+                <span v-else-if="task.data_source?.type === 'text'">{{ (task.data_source.content || '').substring(0, 30) }}...</span>
+                <span v-else>-</span>
+              </div>
+            </td>
+            <td>
+              <span :class="getStatusClass(task.status)">{{ getStatusText(task.status) }}</span>
+            </td>
+            <td>{{ getUserName(task.assigned_to) }}</td>
+            <td>{{ formatDate(task.created_at) }}</td>
+            <td>
+              <div class="actions">
+                <button v-if="task.status === 'pending'" class="btn btn-primary btn-sm" @click="handleClaim(task.id)">领取</button>
+                <template v-else-if="task.status === 'doing'">
+                  <button class="btn btn-warning btn-sm" @click="handleRelease(task.id)">释放</button>
+                  <button class="btn btn-primary btn-sm" @click="router.push(`/annotate/${task.id}`)">标注</button>
+                </template>
+                <span v-else class="tag tag-success">已完成</span>
+              </div>
+            </td>
+          </tr>
+          <tr v-if="tasks.length === 0">
+            <td colspan="6" class="empty">暂无任务</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- 加载状态 -->
+      <div v-if="loading" class="loading-overlay">
+        <div class="loading-spinner"></div>
+      </div>
+    </div>
 
     <!-- 添加成员对话框 -->
-    <el-dialog v-model="memberDialogVisible" title="添加成员" width="400px">
-      <el-form label-width="80px">
-        <el-form-item label="选择用户" required>
-          <el-select v-model="newMemberUserId" placeholder="请选择用户" style="width: 100%">
-            <el-option
-              v-for="user in userList"
-              :key="user.id"
-              :label="user.username"
-              :value="user.id"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="角色" required>
-          <el-radio-group v-model="newMemberRole">
-            <el-radio value="member">成员</el-radio>
-            <el-radio value="admin">管理员</el-radio>
-          </el-radio-group>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="memberDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleAddMember">确定</el-button>
-      </template>
-    </el-dialog>
+    <div v-if="memberDialogVisible" class="dialog-overlay" @click.self="memberDialogVisible = false">
+      <div class="dialog">
+        <div class="dialog-title">添加成员</div>
+        <div class="dialog-body">
+          <div class="form-group">
+            <label class="form-label">选择用户</label>
+            <select v-model="newMemberUserId" class="form-input">
+              <option :value="0">请选择用户</option>
+              <option v-for="user in userList" :key="user.id" :value="user.id">{{ user.username }}</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">角色</label>
+            <div class="radio-group">
+              <label class="radio">
+                <input type="radio" v-model="newMemberRole" value="member" />
+                <span class="radio-label">成员</span>
+              </label>
+              <label class="radio">
+                <input type="radio" v-model="newMemberRole" value="admin" />
+                <span class="radio-label">管理员</span>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button class="btn btn-secondary" @click="memberDialogVisible = false">取消</button>
+          <button class="btn btn-primary" @click="handleAddMember">确定</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 确认对话框 -->
+    <div v-if="removeConfirm.show" class="dialog-overlay" @click.self="removeConfirm.show = false">
+      <div class="dialog">
+        <div class="dialog-title">确认移除</div>
+        <div class="dialog-content">确定要移除成员 "{{ removeConfirm.member?.username }}" 吗？</div>
+        <div class="dialog-footer">
+          <button class="btn btn-secondary" @click="removeConfirm.show = false">取消</button>
+          <button class="btn btn-danger" @click="confirmRemoveMember">确定</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="claimConfirm.show" class="dialog-overlay" @click.self="claimConfirm.show = false">
+      <div class="dialog">
+        <div class="dialog-title">确认领取</div>
+        <div class="dialog-content">确定要领取此任务吗？</div>
+        <div class="dialog-footer">
+          <button class="btn btn-secondary" @click="claimConfirm.show = false">取消</button>
+          <button class="btn btn-primary" @click="confirmClaim">确定</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="releaseConfirm.show" class="dialog-overlay" @click.self="releaseConfirm.show = false">
+      <div class="dialog">
+        <div class="dialog-title">确认释放</div>
+        <div class="dialog-content">确定要释放此任务吗？</div>
+        <div class="dialog-footer">
+          <button class="btn btn-secondary" @click="releaseConfirm.show = false">取消</button>
+          <button class="btn btn-primary" @click="confirmRelease">确定</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
-<style scoped lang="scss">
-.project-detail {
-  .card-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+<style scoped>
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
 
-    h2 {
-      margin: 0;
-      font-size: 18px;
-      font-weight: 600;
-    }
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
 
-    .header-actions {
-      display: flex;
-      gap: 8px;
-    }
-  }
+.page-header-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
 
-  .section-title {
-    margin: 24px 0 12px;
-    font-size: 16px;
-    font-weight: 600;
-    color: #333;
-  }
+.page-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0;
+}
 
-  .info-card, .members-card, .task-card {
-    :deep(.el-card__body) {
-      padding: 16px;
-    }
-  }
+.page-subtitle {
+  font-size: 14px;
+  color: #9CA3AF;
+}
 
-  .stat-card {
-    :deep(.el-card__body) {
-      padding: 12px 16px;
-    }
-  }
+.page-header-actions {
+  display: flex;
+  gap: 8px;
+}
 
-  .members-card {
-    .members-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-  }
+.card-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+  margin-bottom: 16px;
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.info-item.full-width {
+  grid-column: span 2;
+}
+
+.info-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #9CA3AF;
+}
+
+.info-value {
+  font-size: 14px;
+  color: #111827;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.stat-card {
+  background: white;
+  border: 1px solid #E5E7EB;
+  border-radius: 12px;
+  padding: 20px;
+  text-align: center;
+}
+
+.stat-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 4px;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #9CA3AF;
+}
+
+.stat-pending {
+  background: #DBEAFE;
+}
+
+.stat-pending .stat-value,
+.stat-pending .stat-label {
+  color: #3B82F6;
+}
+
+.stat-doing {
+  background: #FEF3C7;
+}
+
+.stat-doing .stat-value,
+.stat-doing .stat-label {
+  color: #F59E0B;
+}
+
+.stat-completed {
+  background: #D1FAE5;
+}
+
+.stat-completed .stat-value,
+.stat-completed .stat-label {
+  color: #10B981;
+}
+
+.member-count {
+  font-size: 14px;
+  color: #6B7280;
+  margin-bottom: 12px;
+}
+
+.role-select {
+  padding: 6px 12px;
+  border: 1px solid #E5E7EB;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #111827;
+  background: white;
+  cursor: pointer;
+}
+
+.role-select:focus {
+  outline: none;
+  border-color: #165DFF;
+}
+
+.btn-warning {
+  background-color: #F59E0B;
+  color: white;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.btn-warning:hover {
+  background-color: #D97706;
+}
+
+.data-source {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-card {
+  position: relative;
+  padding: 0;
+  overflow: hidden;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.radio-group {
+  display: flex;
+  gap: 20px;
+}
+
+.radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.radio input {
+  width: 18px;
+  height: 18px;
+  accent-color: #165DFF;
+}
+
+.dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.empty {
+  text-align: center;
+  color: #9CA3AF;
+  padding: 40px 16px;
 }
 </style>

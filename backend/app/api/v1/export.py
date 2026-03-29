@@ -27,7 +27,10 @@ async def import_data(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_admin_user)
 ):
-    """导入数据（JSON/JSONL 文件）"""
+    """导入数据（JSON/JSONL 文件）
+
+    一个文件创建一个 Task，文件中的多条数据存储在 Task.data_source 数组中
+    """
     try:
         content = await file.read()
 
@@ -37,8 +40,9 @@ async def import_data(
         else:
             data_items = ImportService.parse_json(content)
 
-        count = ImportService.import_data(db, project_id, data_items)
-        return {"message": f"成功导入{count}条数据，创建{count}个任务"}
+        # 传递文件名，一个文件创建一个 Task
+        count = ImportService.import_data(db, project_id, data_items, filename=file.filename)
+        return {"message": f"成功导入{count}条数据，创建1个任务", "count": count}
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -56,7 +60,7 @@ def import_urls(
     """通过 URL 列表导入数据"""
     try:
         count = ImportService.import_data(db, project_id, items)
-        return {"message": f"成功导入{count}条数据，创建{count}个任务"}
+        return {"message": f"成功导入{count}条数据，创建1个任务", "count": count}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

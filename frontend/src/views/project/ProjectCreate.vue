@@ -1,35 +1,44 @@
 <script setup lang="ts">
 /**
- * 创建项目页面 - 基础配置
+ * 创建项目页面 - StepFun风格
  */
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { createProject } from '@/api/project'
 
 const router = useRouter()
 
-// 表单数据
 const form = ref({
   name: '',
   description: '',
 })
 
 const loading = ref(false)
+const errors = ref<{ name?: string }>({})
 
-// 提交创建
-const handleSubmit = async () => {
+const validate = () => {
+  errors.value = {}
   if (!form.value.name.trim()) {
-    ElMessage.warning('请输入项目名称')
-    return
+    errors.value.name = '请输入项目名称'
+    return false
   }
+  return true
+}
+
+const handleSubmit = async () => {
+  if (!validate()) return
 
   loading.value = true
   try {
-    // TODO: 调用 API 创建项目
-    ElMessage.success('项目创建成功')
+    await createProject({
+      name: form.value.name,
+      description: form.value.description,
+      config_json: { pages: [] },
+    })
+    alert('项目创建成功')
     router.push('/projects')
   } catch (error: any) {
-    ElMessage.error('创建失败：' + error.message)
+    alert('创建失败：' + error.message)
   } finally {
     loading.value = false
   }
@@ -37,82 +46,147 @@ const handleSubmit = async () => {
 </script>
 
 <template>
-  <div class="project-create">
+  <div class="page">
     <!-- 顶部 Header -->
-    <div class="create-header">
-      <h2>创建项目</h2>
+    <div class="page-header-bar">
+      <div class="header-info">
+        <h1 class="header-title">创建项目</h1>
+        <span class="header-subtitle">新建标注项目</span>
+      </div>
       <div class="header-actions">
-        <el-button @click="$router.back()">取消</el-button>
-        <el-button type="primary" :loading="loading" @click="handleSubmit">创建项目</el-button>
+        <button class="btn btn-secondary" @click="router.back()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="19" y1="12" x2="5" y2="12"/>
+            <polyline points="12 19 5 12 12 5"/>
+          </svg>
+          取消
+        </button>
+        <button class="btn btn-primary" :disabled="loading" @click="handleSubmit">
+          <svg v-if="!loading" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+          创建项目
+        </button>
       </div>
     </div>
 
-    <!-- 主体内容 - 基础配置 -->
-    <div class="create-body">
-      <el-card class="config-card">
-        <template #header>
-          <span>基础配置</span>
-        </template>
-
-        <el-form :model="form" label-width="100px" size="default">
-          <el-form-item label="项目名称" required>
-            <el-input v-model="form.name" placeholder="请输入项目名称" clearable />
-          </el-form-item>
-          <el-form-item label="项目描述">
-            <el-input
-              v-model="form.description"
-              type="textarea"
-              :rows="4"
-              placeholder="请输入项目描述（可选）"
+    <!-- 主体内容 -->
+    <div class="page-body">
+      <div class="form-card">
+        <h3 class="form-title">基础配置</h3>
+        <form @submit.prevent="handleSubmit" class="form">
+          <div class="form-group">
+            <label class="form-label required">项目名称</label>
+            <input
+              v-model="form.name"
+              type="text"
+              class="form-input"
+              :class="{ 'form-input-error': errors.name }"
+              placeholder="请输入项目名称"
             />
-          </el-form-item>
-        </el-form>
-      </el-card>
+            <span v-if="errors.name" class="form-error">{{ errors.name }}</span>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">项目描述</label>
+            <textarea
+              v-model="form.description"
+              class="form-input form-textarea"
+              rows="4"
+              placeholder="请输入项目描述（可选）"
+            ></textarea>
+          </div>
+        </form>
+      </div>
     </div>
   </div>
 </template>
 
-<style scoped lang="scss">
-.project-create {
-  height: 100vh;
+<style scoped>
+.page {
   display: flex;
   flex-direction: column;
-  background: #f0f2f5;
+  min-height: 100%;
+}
 
-  .create-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 24px;
-    background: #fff;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-    flex-shrink: 0;
+.page-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  background: white;
+  border-bottom: 1px solid #E5E7EB;
+}
 
-    h2 {
-      margin: 0;
-      font-size: 20px;
-      font-weight: 600;
-    }
+.header-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
 
-    .header-actions {
-      display: flex;
-      gap: 12px;
-    }
-  }
+.header-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0;
+}
 
-  .create-body {
-    flex: 1;
-    padding: 24px;
-    overflow: auto;
+.header-subtitle {
+  font-size: 14px;
+  color: #9CA3AF;
+}
 
-    .config-card {
-      max-width: 800px;
-      margin: 0 auto;
+.header-actions {
+  display: flex;
+  gap: 12px;
+}
 
-      :deep(.el-card__header) {
-        font-weight: 600;
-      }
-    }
-  }
+.page-body {
+  flex: 1;
+  padding: 24px;
+  overflow: auto;
+}
+
+.form-card {
+  max-width: 640px;
+  margin: 0 auto;
+  background: white;
+  border: 1px solid #E5E7EB;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.form-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+  margin-bottom: 20px;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.form-label.required::after {
+  content: ' *';
+  color: #EF4444;
+}
+
+.form-textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+
+.form-error {
+  font-size: 12px;
+  color: #EF4444;
+  margin-top: 4px;
+}
+
+.form-input-error {
+  border-color: #EF4444;
 }
 </style>

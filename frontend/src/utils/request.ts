@@ -1,9 +1,22 @@
 import axios from 'axios'
 import type { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios'
-import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 
 const baseURL = '/api/v1'
+
+// 简单的消息提示函数
+const showMessage = (message: string, type: 'error' | 'success' | 'warning' = 'error') => {
+  // 创建消息元素
+  const container = document.createElement('div')
+  container.className = `global-message global-message-${type}`
+  container.textContent = message
+  document.body.appendChild(container)
+
+  // 3秒后自动移除
+  setTimeout(() => {
+    container.remove()
+  }, 3000)
+}
 
 class Request {
   private instance: AxiosInstance
@@ -42,10 +55,10 @@ class Request {
             userStore.logout()
             window.location.href = '/login'
           } else {
-            ElMessage.error(data?.detail || '请求失败')
+            showMessage(data?.detail || '请求失败', 'error')
           }
         } else {
-          ElMessage.error('网络错误')
+          showMessage('网络错误', 'error')
         }
         return Promise.reject(error)
       }

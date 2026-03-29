@@ -1,42 +1,27 @@
 <script setup lang="ts">
 /**
- * 用户列表页面
+ * 用户列表页面 - StepFun风格
  */
 import { ref, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import { getUserList, createUser, updateUserStatus, deleteUser } from '@/api/user'
 import type { User } from '@/types/user'
 
 const users = ref<User[]>([])
 const loading = ref(false)
 const dialogVisible = ref(false)
-const formRef = ref()
 const form = ref({
   username: '',
   password: '',
   role: 'annotator',
 })
-
-const rules = {
-  username: [
-    { required: true, message: '请输入用户名', trigger: 'blur' },
-    { min: 3, max: 50, message: '用户名长度应在 3-50 个字符之间', trigger: 'blur' },
-  ],
-  password: [
-    { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, message: '密码长度至少为 6 个字符', trigger: 'blur' },
-  ],
-  role: [
-    { required: true, message: '请选择角色', trigger: 'change' },
-  ],
-}
+const errors = ref<{ username?: string; password?: string }>({})
 
 const loadUsers = async () => {
   loading.value = true
   try {
     users.value = await getUserList()
-  } catch (e: any) {
-    ElMessage.error('加载用户列表失败')
+  } catch (e) {
+    alert('加载用户列表失败')
   } finally {
     loading.value = false
   }
@@ -49,63 +34,89 @@ const handleCreate = () => {
     password: '',
     role: 'annotator',
   }
+  errors.value = {}
+}
+
+const validate = () => {
+  errors.value = {}
+  let valid = true
+
+  if (!form.value.username) {
+    errors.value.username = '请输入用户名'
+    valid = false
+  } else if (form.value.username.length < 3 || form.value.username.length > 50) {
+    errors.value.username = '用户名长度应在 3-50 个字符之间'
+    valid = false
+  }
+
+  if (!form.value.password) {
+    errors.value.password = '请输入密码'
+    valid = false
+  } else if (form.value.password.length < 6) {
+    errors.value.password = '密码长度至少为 6 个字符'
+    valid = false
+  }
+
+  return valid
 }
 
 const handleSubmit = async () => {
-  if (!formRef.value) return
+  if (!validate()) return
 
-  await formRef.value.validate(async (valid: boolean) => {
-    if (!valid) return
-
-    try {
-      await createUser(form.value)
-      ElMessage.success('创建成功')
-      dialogVisible.value = false
-      loadUsers()
-    } catch (e: any) {
-      // 解析后端返回的详细错误信息
-      let errorMsg = '创建失败'
-      if (e.response?.data?.detail) {
-        const detail = e.response.data.detail
-        if (typeof detail === 'string') {
-          errorMsg = detail
-        } else if (Array.isArray(detail)) {
-          // Pydantic 验证错误数组
-          errorMsg = detail.map((err: any) => {
-            const field = err.loc?.join('.') || '输入'
-            const msg = err.msg || '验证失败'
-            return `${field}: ${msg}`
-          }).join('; ')
-        }
+  try {
+    await createUser(form.value)
+    alert('创建成功')
+    dialogVisible.value = false
+    loadUsers()
+  } catch (e: any) {
+    let errorMsg = '创建失败'
+    if (e.response?.data?.detail) {
+      const detail = e.response.data.detail
+      if (typeof detail === 'string') {
+        errorMsg = detail
+      } else if (Array.isArray(detail)) {
+        errorMsg = detail.map((err: any) => `${err.loc?.join('.')}: ${err.msg}`).join('; ')
       }
-      ElMessage.error(errorMsg)
     }
-  })
-}
-
-const handleToggleStatus = async (user: User) => {
-  try {
-    await updateUserStatus(user.id, !user.is_active)
-    ElMessage.success(user.is_active ? '已禁用用户' : '已启用用户')
-    loadUsers()
-  } catch (e: any) {
-    ElMessage.error('操作失败')
+    alert(errorMsg)
   }
 }
 
-const handleDelete = async (user: User) => {
+const confirmDialog = ref<{ show: boolean; type: string; user: User | null }>({
+  show: false,
+  type: '',
+  user: null
+})
+
+const handleToggleStatus = (user: User) => {
+  confirmDialog.value = { show: true, type: 'toggle', user }
+}
+
+const handleDelete = (user: User) => {
+  confirmDialog.value = { show: true, type: 'delete', user }
+}
+
+const confirmAction = async () => {
+  if (!confirmDialog.value.user) return
+
   try {
-    await ElMessageBox.confirm(`确定要删除用户 "${user.username}" 吗？`, '确认删除', {
-      type: 'warning',
-    })
-    await deleteUser(user.id)
-    ElMessage.success('删除成功')
-    loadUsers()
-  } catch (e: any) {
-    if (e !== 'cancel') {
-      ElMessage.error('删除失败')
+    if (confirmDialog.value.type === 'toggle') {
+      await updateUserStatus(confirmDialog.value.user.id, !confirmDialog.value.user.is_active)
+      alert(confirmDialog.value.user.is_active ? '已禁用用户' : '已启用用户')
+    } else {
+      await deleteUser(confirmDialog.value.user.id)
+      alert('删除成功')
     }
+    loadUsers()
+  } catch (e) {
+    alert('操作失败')
+  } finally {
+    confirmDialog.value = { show: false, type: '', user: null }
   }
+}
+
+const getRoleClass = (role: string) => {
+  return role === 'admin' ? 'tag tag-error' : 'tag tag-primary'
 }
 
 onMounted(() => {
@@ -114,91 +125,212 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="user-list">
-    <div class="header">
-      <h2>用户管理</h2>
-      <el-button type="primary" @click="handleCreate">创建用户</el-button>
+  <div class="page">
+    <!-- 页面头部 -->
+    <div class="page-header">
+      <h1 class="page-title">用户管理</h1>
+      <button class="btn btn-primary" @click="handleCreate">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="5" x2="12" y2="19"/>
+          <line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        创建用户
+      </button>
     </div>
 
-    <el-table :data="users" v-loading="loading">
-      <el-table-column prop="id" label="ID" width="80" />
-      <el-table-column prop="username" label="用户名" />
-      <el-table-column prop="role" label="角色">
-        <template #default="{ row }">
-          <el-tag :type="row.role === 'admin' ? 'danger' : 'primary'">
-            {{ row.role === 'admin' ? '管理员' : '标注员' }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column prop="is_active" label="状态">
-        <template #default="{ row }">
-          <el-tag :type="row.is_active ? 'success' : 'danger'">
-            {{ row.is_active ? '启用' : '禁用' }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column prop="created_at" label="创建时间">
-        <template #default="{ row }">
-          {{ new Date(row.created_at).toLocaleString('zh-CN') }}
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="200" fixed="right">
-        <template #default="{ row }">
-          <el-button
-            link
-            type="primary"
-            @click="handleToggleStatus(row)"
-          >
-            {{ row.is_active ? '禁用' : '启用' }}
-          </el-button>
-          <el-button
-            link
-            type="danger"
-            @click="handleDelete(row)"
-          >
-            删除
-          </el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+    <!-- 表格卡片 -->
+    <div class="card table-card">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>用户名</th>
+            <th>角色</th>
+            <th>状态</th>
+            <th>创建时间</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="user in users" :key="user.id">
+            <td>{{ user.id }}</td>
+            <td class="font-medium">{{ user.username }}</td>
+            <td>
+              <span :class="getRoleClass(user.role)">
+                {{ user.role === 'admin' ? '管理员' : '标注员' }}
+              </span>
+            </td>
+            <td>
+              <span :class="user.is_active ? 'tag tag-success' : 'tag tag-error'">
+                {{ user.is_active ? '启用' : '禁用' }}
+              </span>
+            </td>
+            <td>{{ new Date(user.created_at).toLocaleString('zh-CN') }}</td>
+            <td>
+              <div class="actions">
+                <button class="btn btn-text btn-sm" @click="handleToggleStatus(user)">
+                  {{ user.is_active ? '禁用' : '启用' }}
+                </button>
+                <button class="btn btn-danger btn-sm" @click="handleDelete(user)">删除</button>
+              </div>
+            </td>
+          </tr>
+          <tr v-if="users.length === 0 && !loading">
+            <td colspan="6" class="empty">暂无用户</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div v-if="loading" class="loading-overlay">
+        <div class="loading-spinner"></div>
+      </div>
+    </div>
 
     <!-- 创建用户对话框 -->
-    <el-dialog v-model="dialogVisible" title="创建用户" width="400px">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="80px">
-        <el-form-item label="用户名" prop="username">
-          <el-input v-model="form.username" />
-        </el-form-item>
-        <el-form-item label="密码" prop="password">
-          <el-input v-model="form.password" type="password" />
-        </el-form-item>
-        <el-form-item label="角色" prop="role">
-          <el-radio-group v-model="form.role">
-            <el-radio value="annotator">标注员</el-radio>
-            <el-radio value="admin">管理员</el-radio>
-          </el-radio-group>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">创建</el-button>
-      </template>
-    </el-dialog>
+    <div v-if="dialogVisible" class="dialog-overlay" @click.self="dialogVisible = false">
+      <div class="dialog">
+        <div class="dialog-title">创建用户</div>
+        <div class="dialog-body">
+          <div class="form-group">
+            <label class="form-label">用户名</label>
+            <input
+              v-model="form.username"
+              type="text"
+              class="form-input"
+              :class="{ 'form-input-error': errors.username }"
+              placeholder="请输入用户名"
+            />
+            <span v-if="errors.username" class="form-error">{{ errors.username }}</span>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">密码</label>
+            <input
+              v-model="form.password"
+              type="password"
+              class="form-input"
+              :class="{ 'form-input-error': errors.password }"
+              placeholder="请输入密码"
+            />
+            <span v-if="errors.password" class="form-error">{{ errors.password }}</span>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">角色</label>
+            <div class="radio-group">
+              <label class="radio">
+                <input type="radio" v-model="form.role" value="annotator" />
+                <span class="radio-label">标注员</span>
+              </label>
+              <label class="radio">
+                <input type="radio" v-model="form.role" value="admin" />
+                <span class="radio-label">管理员</span>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button class="btn btn-secondary" @click="dialogVisible = false">取消</button>
+          <button class="btn btn-primary" @click="handleSubmit">创建</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 确认对话框 -->
+    <div v-if="confirmDialog.show" class="dialog-overlay" @click.self="confirmDialog.show = false">
+      <div class="dialog">
+        <div class="dialog-title">
+          {{ confirmDialog.type === 'toggle' ? '确认' : '确认删除' }}
+        </div>
+        <div class="dialog-content">
+          {{ confirmDialog.type === 'toggle'
+            ? `确定要${confirmDialog.user?.is_active ? '禁用' : '启用'}用户 "${confirmDialog.user?.username}" 吗？`
+            : `确定要删除用户 "${confirmDialog.user?.username}" 吗？`
+          }}
+        </div>
+        <div class="dialog-footer">
+          <button class="btn btn-secondary" @click="confirmDialog.show = false">取消</button>
+          <button class="btn btn-primary" @click="confirmAction">确定</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
-<style scoped lang="scss">
-.user-list {
-  .header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 20px;
+<style scoped>
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
 
-    h2 {
-      margin: 0;
-      font-size: 20px;
-      font-weight: 600;
-    }
-  }
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.page-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0;
+}
+
+.table-card {
+  position: relative;
+  padding: 0;
+  overflow: hidden;
+}
+
+.font-medium {
+  font-weight: 500;
+  color: #111827;
+}
+
+.actions {
+  display: flex;
+  gap: 4px;
+}
+
+.radio-group {
+  display: flex;
+  gap: 20px;
+}
+
+.radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.radio input {
+  width: 18px;
+  height: 18px;
+  accent-color: #165DFF;
+}
+
+.dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.form-error {
+  font-size: 12px;
+  color: #EF4444;
+  margin-top: 4px;
+}
+
+.form-input-error {
+  border-color: #EF4444;
+}
+
+.empty {
+  text-align: center;
+  color: #9CA3AF;
+  padding: 40px 16px;
 }
 </style>

@@ -1,102 +1,60 @@
 <script setup lang="ts">
 /**
- * 图片拉框标注器组件
- * 支持功能：
- * - 图片显示与缩放/平移
- * - 拖拽绘制 bbox
- * - 8 点调整 bbox 大小
- * - 键盘方向键微调
- * - Bbox 显示/隐藏切换
+ * ImageBBoxAnnotator - 图片拉框标注器 v2
+ *
+ * 功能：
+ * - 图片展示 + bbox 框绘制
+ * - 拖拽调整 bbox
+ * - 新建 bbox
+ * - 集成 BboxPropertyEditor
+ *
+ * 使用共享上下文进行状态管理
  */
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { useAnnotationContext } from '@/composables/useAnnotationContext'
+import BboxPropertyEditor from './BboxPropertyEditor.vue'
 
-export interface BboxData {
-  path: number[]        // 组件在树中的路径
-  bbox: [number, number, number, number]  // [x1, y1, x2, y2]
-  type?: string
-  text?: string
-}
-
-export interface ImageBBoxAnnotatorProps {
-  imageUrl: string
-  bboxes: BboxData[]
-  selectedBboxPath?: number[] | null
-  showAllBboxes?: boolean
-  zoomable?: boolean
-  bboxEditable?: boolean
-}
-
-const props = withDefaults(defineProps<ImageBBoxAnnotatorProps>(), {
-  selectedBboxPath: null,
-  showAllBboxes: false,
-  zoomable: true,
-  bboxEditable: true
-})
-
-const emit = defineEmits<{
-  'update:selectedBboxPath': [path: number[] | null]
-  'update:bbox': [path: number[], bbox: [number, number, number, number]]
-  'bbox:select': [path: number[]]
-  'image:load': [width: number, height: number]
+// Props
+const props = defineProps<{
+  title?: string
+  readonly?: boolean
+  showTitle?: boolean  // 是否显示内部标题
 }>()
 
-// DOM 引用
-const imageContainer = ref<HTMLElement | null>(null)
-const imageCanvas = ref<HTMLElement | null>(null)
-const imagePreview = ref<HTMLImageElement | null>(null)
-const bboxOverlays = ref<HTMLElement | null>(null)
+// 获取上下文
+const context = useAnnotationContext()
+const {
+  bboxList,
+  selectedId,
+  showAllBboxes,
+  selectedBbox,
+  representField,
+  config,
+  updateBboxCoord,
+  updateBbox,
+  addBbox,
+  selectBbox
+} = context
 
-// 图片状态
+// ===== 图片相关 =====
+const imageContainer = ref<HTMLElement | null>(null)
+const imagePreview = ref<HTMLImageElement | null>(null)
 const imageLoaded = ref(false)
 const naturalWidth = ref(0)
 const naturalHeight = ref(0)
 
-// 缩放状态
-const zoomMode = ref(false)
-const zoomLevel = ref(1)
-const imageTranslate = ref({ x: 0, y: 0 })
-const isPanning = ref(false)
-const panStart = ref({ x: 0, y: 0 })
+// 图片 URL（处理路径清洗）
+const imageUrl = computed(() => {
+  if (!config.value) return ''
+  let url = context.rawData.value?.[config.value.image.field] || ''
 
-// 拖拽/调整状态
-const isDragging = ref(false)
-const isResizing = ref(false)
-const resizeHandle = ref<string | null>(null)
-const dragStart = ref({ x: 0, y: 0 })
-const bboxStart = ref({ left: 0, top: 0, width: 0, height: 0 })
-const currentBboxPath = ref<number[] | null>(null)
-const hasDragStarted = ref(false)
-
-// 获取当前缩放比例
-const getCurrentScale = () => {
-  if (!imagePreview.value) return { scaleX: 1, scaleY: 1 }
-  const rect = imagePreview.value.getBoundingClientRect()
-  return {
-    scaleX: rect.width / naturalWidth.value,
-    scaleY: rect.height / naturalHeight.value
+  // 路径清洗
+  if (config.value.image.pathClean?.enabled && config.value.image.pathClean.prefix) {
+    url = url.replace(config.value.image.pathClean.prefix, '')
   }
-}
 
-// 更新图片变换
-const updateZoomTransform = () => {
-  if (!imageCanvas.value) return
-  imageCanvas.value.style.transform = `translate(${imageTranslate.value.x}px, ${imageTranslate.value.y}px) scale(${zoomLevel.value})`
-}
-
-// 重置缩放
-const resetZoom = () => {
-  zoomLevel.value = 1
-  imageTranslate.value = { x: 0, y: 0 }
-  updateZoomTransform()
-}
-
-// 切换放大模式
-const toggleZoomMode = () => {
-  zoomMode.value = !zoomMode.value
-  if (!zoomMode.value) {
-    resetZoom()
-  }
-}
+  return url
+})
 
 // 图片加载完成
 const onImageLoad = () => {
@@ -104,177 +62,269 @@ const onImageLoad = () => {
   naturalWidth.value = imagePreview.value.naturalWidth
   naturalHeight.value = imagePreview.value.naturalHeight
   imageLoaded.value = true
-  emit('image:load', naturalWidth.value, naturalHeight.value)
 }
 
-// 监听外部缩放重置
-watch(() => props.imageUrl, () => {
-  resetZoom()
-  imageLoaded.value = false
-})
+// ===== 缩放模式 =====
+const zoomMode = ref(false)
+const zoomLevel = ref(1)
+const minZoom = 0.25
+const maxZoom = 4
+const zoomStep = 0.25
 
-// ========== Bbox 选择 ==========
-const selectBbox = (path: number[], event?: MouseEvent) => {
-  emit('update:selectedBboxPath', path)
-  emit('bbox:select', path)
+// 拖动画布
+const isPanning = ref(false)
+const panStart = ref({ x: 0, y: 0 })
+const imageTranslate = ref({ x: 0, y: 0 })
+
+const toggleZoomMode = () => {
+  zoomMode.value = !zoomMode.value
+  if (!zoomMode.value) {
+    resetZoom()
+  }
 }
 
-// ========== 拖拽绘制和 8 点调整 ==========
-const handleBboxMouseDown = (e: MouseEvent, path: number[]) => {
-  if (!props.bboxEditable || e.button !== 0) return
+const zoomIn = () => {
+  if (zoomLevel.value < maxZoom) {
+    zoomLevel.value = Math.min(maxZoom, zoomLevel.value + zoomStep)
+  }
+}
+
+const zoomOut = () => {
+  if (zoomLevel.value > minZoom) {
+    zoomLevel.value = Math.max(minZoom, zoomLevel.value - zoomStep)
+  }
+}
+
+const resetZoom = () => {
+  zoomLevel.value = 1
+  imageTranslate.value = { x: 0, y: 0 }
+}
+
+// 滚轮缩放（仅在缩放模式下生效）
+const handleWheel = (e: WheelEvent) => {
+  if (!zoomMode.value) return
+  e.preventDefault()
+  if (e.deltaY < 0) {
+    zoomIn()
+  } else {
+    zoomOut()
+  }
+}
+
+// 拖动画布（缩放模式下）
+const handleCanvasMouseDown = (e: MouseEvent) => {
+  if (!zoomMode.value || e.button !== 0) return
+  if (!imageContainer.value) return
+
+  isPanning.value = true
+  panStart.value = {
+    x: e.clientX - imageTranslate.value.x,
+    y: e.clientY - imageTranslate.value.y
+  }
+
+  document.addEventListener('mousemove', handleCanvasMouseMove)
+  document.addEventListener('mouseup', handleCanvasMouseUp)
+  e.preventDefault()
+}
+
+const handleCanvasMouseMove = (e: MouseEvent) => {
+  if (!isPanning.value) return
+
+  imageTranslate.value = {
+    x: e.clientX - panStart.value.x,
+    y: e.clientY - panStart.value.y
+  }
+}
+
+const handleCanvasMouseUp = () => {
+  isPanning.value = false
+  document.removeEventListener('mousemove', handleCanvasMouseMove)
+  document.removeEventListener('mouseup', handleCanvasMouseUp)
+}
+
+// 计算 bbox 显示样式（应用缩放和平移）
+const getBboxStyle = (bbox: [number, number, number, number]) => {
+  return {
+    left: bbox[0] * zoomLevel.value + imageTranslate.value.x + 'px',
+    top: bbox[1] * zoomLevel.value + imageTranslate.value.y + 'px',
+    width: (bbox[2] - bbox[0]) * zoomLevel.value + 'px',
+    height: (bbox[3] - bbox[1]) * zoomLevel.value + 'px'
+  }
+}
+
+// ===== BBox 可见性 =====
+const isBboxVisible = (id: string): boolean => {
+  if (showAllBboxes.value) return true
+  if (!selectedId.value) return false
+  return id === selectedId.value
+}
+
+const isSelected = (id: string): boolean => {
+  return id === selectedId.value
+}
+
+// ===== 获取当前显示缩放比例 =====
+const getCurrentScale = () => {
+  // 返回显示缩放比例（zoomLevel）
+  return {
+    scaleX: zoomLevel.value,
+    scaleY: zoomLevel.value
+  }
+}
+
+// ===== 拖拽调整 =====
+const isDragging = ref(false)
+const isResizing = ref(false)
+const resizeHandle = ref<string | null>(null)
+const dragStart = ref({ x: 0, y: 0 })
+const bboxStart = ref({ left: 0, top: 0, width: 0, height: 0 })
+const currentDragId = ref<string | null>(null)
+
+// 点击 bbox
+const handleBboxClick = (id: string, event: MouseEvent) => {
+  if (props.readonly) return
+  event.stopPropagation()
+  selectBbox(id)
+}
+
+// 开始拖拽
+const handleBboxMouseDown = (e: MouseEvent, id: string) => {
+  if (props.readonly || e.button !== 0) return
 
   const target = e.target as HTMLElement
   const handle = target.closest('.resize-handle') as HTMLElement | null
 
   if (handle) {
-    // 调整大小
     isResizing.value = true
     resizeHandle.value = handle.dataset.handle || null
-    currentBboxPath.value = path
   } else {
-    // 拖动整个框
     isDragging.value = true
-    currentBboxPath.value = path
-    selectBbox(path, e)
   }
+
+  currentDragId.value = id
+  selectBbox(id)
 
   e.preventDefault()
   e.stopPropagation()
 
   const { scaleX, scaleY } = getCurrentScale()
-  const overlay = target.closest('.bbox-overlay') as HTMLElement
+  const bbox = bboxList.value.find(b => b.id === id)
+  if (!bbox) return
 
   dragStart.value = { x: e.clientX, y: e.clientY }
   bboxStart.value = {
-    left: parseFloat(overlay.style.left),
-    top: parseFloat(overlay.style.top),
-    width: parseFloat(overlay.style.width),
-    height: parseFloat(overlay.style.height)
+    left: bbox.bbox[0],
+    top: bbox.bbox[1],
+    width: bbox.bbox[2] - bbox.bbox[0],
+    height: bbox.bbox[3] - bbox.bbox[1]
   }
-  hasDragStarted.value = false
 
   document.addEventListener('mousemove', handleBboxMousemove)
   document.addEventListener('mouseup', handleBboxMouseup)
 }
 
+// 拖拽中
 const handleBboxMousemove = (e: MouseEvent) => {
-  if ((!isResizing.value && !isDragging.value) || !currentBboxPath.value) return
+  if (!currentDragId.value || (!isDragging.value && !isResizing.value)) return
 
-  const dx = e.clientX - dragStart.value.x
-  const dy = e.clientY - dragStart.value.y
-  const movedThreshold = 3
-
-  if (!hasDragStarted.value) {
-    if (Math.sqrt(dx * dx + dy * dy) < movedThreshold) return
-    hasDragStarted.value = true
-  }
-
-  e.preventDefault()
-
-  const imgBounds = { maxX: naturalWidth.value, maxY: naturalHeight.value }
   const { scaleX, scaleY } = getCurrentScale()
-  const moveDx = dx / scaleX
-  const moveDy = dy / scaleY
+  const dx = (e.clientX - dragStart.value.x) / scaleX
+  const dy = (e.clientY - dragStart.value.y) / scaleY
+
+  let newBbox: [number, number, number, number]
 
   if (isDragging.value) {
-    // 整体拖动
-    let newLeft = Math.max(0, Math.min(bboxStart.value.left + moveDx, imgBounds.maxX - bboxStart.value.width))
-    let newTop = Math.max(0, Math.min(bboxStart.value.top + moveDy, imgBounds.maxY - bboxStart.value.height))
-
-    updateBboxPosition(currentBboxPath.value, newLeft, newTop)
+    newBbox = [
+      Math.max(0, Math.round(bboxStart.value.left + dx)),
+      Math.max(0, Math.round(bboxStart.value.top + dy)),
+      Math.min(naturalWidth.value, Math.round(bboxStart.value.left + bboxStart.value.width + dx)),
+      Math.min(naturalHeight.value, Math.round(bboxStart.value.top + bboxStart.value.height + dy))
+    ]
   } else if (isResizing.value && resizeHandle.value) {
-    // 8 点调整
-    const deltaXPx = dx / scaleX
-    const deltaYPx = dy / scaleY
-    let newLeft = bboxStart.value.left
-    let newTop = bboxStart.value.top
-    let newWidth = bboxStart.value.width
-    let newHeight = bboxStart.value.height
+    let { left, top, width, height } = bboxStart.value
 
     switch (resizeHandle.value) {
       case 'nw':
-        newLeft = Math.max(0, Math.min(bboxStart.value.left + deltaXPx, bboxStart.value.left + bboxStart.value.width - 10))
-        newTop = Math.max(0, Math.min(bboxStart.value.top + deltaYPx, bboxStart.value.top + bboxStart.value.height - 10))
-        newWidth = bboxStart.value.width - (newLeft - bboxStart.value.left)
-        newHeight = bboxStart.value.height - (newTop - bboxStart.value.top)
+        left = Math.max(0, left + dx)
+        top = Math.max(0, top + dy)
+        width = width - dx
+        height = height - dy
         break
       case 'n':
-        newTop = Math.max(0, Math.min(bboxStart.value.top + deltaYPx, bboxStart.value.top + bboxStart.value.height - 10))
-        newHeight = bboxStart.value.height - (newTop - bboxStart.value.top)
+        top = Math.max(0, top + dy)
+        height = height - dy
         break
       case 'ne':
-        newTop = Math.max(0, Math.min(bboxStart.value.top + deltaYPx, bboxStart.value.top + bboxStart.value.height - 10))
-        newWidth = Math.max(10, Math.min(bboxStart.value.width + deltaXPx, imgBounds.maxX - bboxStart.value.left))
-        newHeight = bboxStart.value.height - (newTop - bboxStart.value.top)
+        top = Math.max(0, top + dy)
+        width = Math.max(10, width + dx)
+        height = height - dy
         break
       case 'e':
-        newWidth = Math.max(10, Math.min(bboxStart.value.width + deltaXPx, imgBounds.maxX - bboxStart.value.left))
+        width = Math.max(10, width + dx)
         break
       case 'se':
-        newWidth = Math.max(10, Math.min(bboxStart.value.width + deltaXPx, imgBounds.maxX - bboxStart.value.left))
-        newHeight = Math.max(10, Math.min(bboxStart.value.height + deltaYPx, imgBounds.maxY - bboxStart.value.top))
+        width = Math.max(10, width + dx)
+        height = Math.max(10, height + dy)
         break
       case 's':
-        newHeight = Math.max(10, Math.min(bboxStart.value.height + deltaYPx, imgBounds.maxY - bboxStart.value.top))
+        height = Math.max(10, height + dy)
         break
       case 'sw':
-        newLeft = Math.max(0, Math.min(bboxStart.value.left + deltaXPx, bboxStart.value.left + bboxStart.value.width - 10))
-        newWidth = bboxStart.value.width - (newLeft - bboxStart.value.left)
-        newHeight = Math.max(10, Math.min(bboxStart.value.height + deltaYPx, imgBounds.maxY - bboxStart.value.top))
+        left = Math.max(0, left + dx)
+        width = Math.max(10, width - dx)
+        height = Math.max(10, height + dy)
         break
       case 'w':
-        newLeft = Math.max(0, Math.min(bboxStart.value.left + deltaXPx, bboxStart.value.left + bboxStart.value.width - 10))
-        newWidth = bboxStart.value.width - (newLeft - bboxStart.value.left)
+        left = Math.max(0, left + dx)
+        width = Math.max(10, width - dx)
         break
     }
 
-    updateBboxDimensions(currentBboxPath.value, newLeft, newTop, newWidth, newHeight)
+    newBbox = [
+      Math.round(left),
+      Math.round(top),
+      Math.round(left + width),
+      Math.round(top + height)
+    ]
+  } else {
+    return
   }
+
+  updateBboxCoord(currentDragId.value, newBbox)
 }
 
+// 拖拽结束
 const handleBboxMouseup = () => {
-  if ((isResizing.value || isDragging.value) && currentBboxPath.value) {
-    // 最终保存 bbox 变更由父组件处理
-  }
-
-  isResizing.value = false
   isDragging.value = false
+  isResizing.value = false
   resizeHandle.value = null
-  currentBboxPath.value = null
-  hasDragStarted.value = false
+  currentDragId.value = null
 
   document.removeEventListener('mousemove', handleBboxMousemove)
   document.removeEventListener('mouseup', handleBboxMouseup)
 }
 
-// 更新 bbox 位置（拖动）
-const updateBboxPosition = (path: number[], left: number, top: number) => {
-  const bbox = props.bboxes.find(b => getPathKey(b.path) === getPathKey(path))
-  if (!bbox) return
+// 右键新建 bbox
+const handleCanvasContextMenu = (e: MouseEvent) => {
+  if (props.readonly) return
 
-  const x1 = Math.round(left)
-  const y1 = Math.round(top)
-  const x2 = Math.round(left + parseFloat((document.querySelector(`.bbox-overlay[data-path='${JSON.stringify(path)}']`) as HTMLElement)?.style.width || bbox.bbox[2] - bbox.bbox[0]))
-  const y2 = Math.round(top + parseFloat((document.querySelector(`.bbox-overlay[data-path='${JSON.stringify(path)}']`) as HTMLElement)?.style.height || bbox.bbox[3] - bbox.bbox[1]))
+  e.preventDefault()
 
-  emit('update:bbox', path, [x1, y1, x2, y2])
+  if (!imagePreview.value) return
+
+  const rect = imagePreview.value.getBoundingClientRect()
+  // 计算点击位置对应的原始图片坐标
+  const x = Math.round((e.clientX - rect.left) / zoomLevel.value)
+  const y = Math.round((e.clientY - rect.top) / zoomLevel.value)
+
+  addBbox([x - 50, y - 25, x + 50, y + 25])
 }
 
-// 更新 bbox 尺寸（调整）
-const updateBboxDimensions = (path: number[], left: number, top: number, width: number, height: number) => {
-  const x1 = Math.round(left)
-  const y1 = Math.round(top)
-  const x2 = Math.round(left + width)
-  const y2 = Math.round(top + height)
-
-  emit('update:bbox', path, [x1, y1, x2, y2])
-}
-
-// ========== 键盘微调 ==========
+// ===== 键盘操作 =====
 const handleKeyDown = (e: KeyboardEvent) => {
-  if (!props.selectedBboxPath || !props.bboxEditable) return
+  if (!selectedId.value || props.readonly) return
 
-  const bbox = props.bboxes.find(b => getPathKey(b.path) === getPathKey(props.selectedBboxPath!))
+  const bbox = bboxList.value.find(b => b.id === selectedId.value)
   if (!bbox) return
 
   const step = e.shiftKey ? 10 : 1
@@ -283,38 +333,148 @@ const handleKeyDown = (e: KeyboardEvent) => {
   switch (e.key) {
     case 'ArrowUp':
       e.preventDefault()
-      emit('update:bbox', props.selectedBboxPath, [x1, y1 - step, x2, y2 - step])
+      updateBboxCoord(selectedId.value, [x1, y1 - step, x2, y2 - step])
       break
     case 'ArrowDown':
       e.preventDefault()
-      emit('update:bbox', props.selectedBboxPath, [x1, y1 + step, x2, y2 + step])
+      updateBboxCoord(selectedId.value, [x1, y1 + step, x2, y2 + step])
       break
     case 'ArrowLeft':
       e.preventDefault()
-      emit('update:bbox', props.selectedBboxPath, [x1 - step, y1, x2 - step, y2])
+      updateBboxCoord(selectedId.value, [x1 - step, y1, x2 - step, y2])
       break
     case 'ArrowRight':
       e.preventDefault()
-      emit('update:bbox', props.selectedBboxPath, [x1 + step, y1, x2 + step, y2])
+      updateBboxCoord(selectedId.value, [x1 + step, y1, x2 + step, y2])
       break
   }
 }
 
-// ========== 工具函数 ==========
-const getPathKey = (path: number[]): string => path.join('-')
-
-const isBboxVisible = (path: number[]): boolean => {
-  if (props.showAllBboxes) return true
-  if (!props.selectedBboxPath) return false
-  return getPathKey(path) === getPathKey(props.selectedBboxPath)
+// 切换显示全部
+const toggleShowAll = () => {
+  showAllBboxes.value = !showAllBboxes.value
 }
 
-const isSelectedBbox = (path: number[]): boolean => {
-  if (!props.selectedBboxPath) return false
-  return getPathKey(path) === getPathKey(props.selectedBboxPath)
+// ===== 属性编辑相关 =====
+const hasSelection = computed(() => selectedBbox.value !== null)
+
+const properties = computed(() => config.value?.bboxProperties || [])
+
+const getPropertyValue = (name: string) => {
+  return selectedBbox.value?.[name]
 }
 
-// ========== 生命周期 ==========
+const setProperty = (name: string, value: any) => {
+  if (selectedId.value) {
+    updateBbox(selectedId.value, name, value)
+  }
+}
+
+// 当前 bbox 坐标
+const currentBbox = computed({
+  get: () => selectedBbox.value?.bbox || [0, 0, 0, 0],
+  set: (val) => {
+    if (selectedId.value) {
+      updateBboxCoord(selectedId.value, val as [number, number, number, number])
+    }
+  }
+})
+
+const x1 = computed({
+  get: () => currentBbox.value[0],
+  set: (val) => { currentBbox.value = [val, currentBbox.value[1], currentBbox.value[2], currentBbox.value[3]] }
+})
+const y1 = computed({
+  get: () => currentBbox.value[1],
+  set: (val) => { currentBbox.value = [currentBbox.value[0], val, currentBbox.value[2], currentBbox.value[3]] }
+})
+const x2 = computed({
+  get: () => currentBbox.value[2],
+  set: (val) => { currentBbox.value = [currentBbox.value[0], currentBbox.value[1], val, currentBbox.value[3]] }
+})
+const y2 = computed({
+  get: () => currentBbox.value[3],
+  set: (val) => { currentBbox.value = [currentBbox.value[0], currentBbox.value[1], currentBbox.value[2], val] }
+})
+
+// ===== 面板宽度调整 =====
+// 外层：图片区域 vs 右侧面板组
+const imagePanelWidth = ref(60) // 百分比
+const isResizingOuter = ref(false)
+const resizeOuterStartX = ref(0)
+const resizeOuterStartWidth = ref(0)
+
+// 内层：框调整 vs 信息调整
+const bboxPanelWidth = ref(50) // 百分比（相对于右侧面板组）
+const isResizingInner = ref(false)
+const resizeInnerStartX = ref(0)
+const resizeInnerStartWidth = ref(0)
+
+// 外层调整
+const startResizeOuter = (event: MouseEvent) => {
+  if (props.readonly) return
+
+  isResizingOuter.value = true
+  resizeOuterStartX.value = event.clientX
+  resizeOuterStartWidth.value = imagePanelWidth.value
+
+  document.addEventListener('mousemove', handleResizeOuter)
+  document.addEventListener('mouseup', stopResizeOuter)
+  event.preventDefault()
+}
+
+const handleResizeOuter = (event: MouseEvent) => {
+  if (!isResizingOuter.value) return
+
+  const container = document.querySelector('.annotator-body')
+  if (!container) return
+
+  const containerWidth = container.getBoundingClientRect().width
+  const deltaX = event.clientX - resizeOuterStartX.value
+  const deltaPercent = (deltaX / containerWidth) * 100
+
+  imagePanelWidth.value = Math.max(30, Math.min(70, resizeOuterStartWidth.value + deltaPercent))
+}
+
+const stopResizeOuter = () => {
+  isResizingOuter.value = false
+  document.removeEventListener('mousemove', handleResizeOuter)
+  document.removeEventListener('mouseup', stopResizeOuter)
+}
+
+// 内层调整
+const startResizeInner = (event: MouseEvent) => {
+  if (props.readonly) return
+
+  isResizingInner.value = true
+  resizeInnerStartX.value = event.clientX
+  resizeInnerStartWidth.value = bboxPanelWidth.value
+
+  document.addEventListener('mousemove', handleResizeInner)
+  document.addEventListener('mouseup', stopResizeInner)
+  event.preventDefault()
+}
+
+const handleResizeInner = (event: MouseEvent) => {
+  if (!isResizingInner.value) return
+
+  const container = document.querySelector('.right-panel-group')
+  if (!container) return
+
+  const containerWidth = container.getBoundingClientRect().width
+  const deltaX = event.clientX - resizeInnerStartX.value // 向右拖动增大框面板宽度
+  const deltaPercent = (deltaX / containerWidth) * 100
+
+  bboxPanelWidth.value = Math.max(30, Math.min(70, resizeInnerStartWidth.value + deltaPercent))
+}
+
+const stopResizeInner = () => {
+  isResizingInner.value = false
+  document.removeEventListener('mousemove', handleResizeInner)
+  document.removeEventListener('mouseup', stopResizeInner)
+}
+
+// ===== 生命周期 =====
 onMounted(() => {
   window.addEventListener('keydown', handleKeyDown)
 })
@@ -323,100 +483,211 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown)
   document.removeEventListener('mousemove', handleBboxMousemove)
   document.removeEventListener('mouseup', handleBboxMouseup)
+  document.removeEventListener('mousemove', handleResizeOuter)
+  document.removeEventListener('mouseup', stopResizeOuter)
+  document.removeEventListener('mousemove', handleResizeInner)
+  document.removeEventListener('mouseup', stopResizeInner)
 })
 
-// ========== 画布拖拽（放大模式下） ==========
-const handleCanvasMouseDown = (e: MouseEvent) => {
-  if (!zoomMode.value || e.button !== 0) return
-  isPanning.value = true
-  panStart.value = { x: e.clientX - imageTranslate.value.x, y: e.clientY - imageTranslate.value.y }
-  document.addEventListener('mousemove', handleCanvasMousemove)
-  document.addEventListener('mouseup', handleCanvasMouseup)
-}
-
-const handleCanvasMousemove = (e: MouseEvent) => {
-  if (!isPanning.value) return
-  e.preventDefault()
-  imageTranslate.value = {
-    x: e.clientX - panStart.value.x,
-    y: e.clientY - panStart.value.y
-  }
-  updateZoomTransform()
-}
-
-const handleCanvasMouseup = () => {
-  isPanning.value = false
-  document.removeEventListener('mousemove', handleCanvasMousemove)
-  document.removeEventListener('mouseup', handleCanvasMouseup)
-}
+// 监听图片变化重置缩放
+watch(imageUrl, () => {
+  resetZoom()
+  imageLoaded.value = false
+})
 </script>
 
 <template>
-  <div class="image-bbox-annotator" :class="{ 'zoom-mode': zoomMode }">
-    <!-- 图片信息栏 -->
-    <div class="image-info-bar">
-      <span class="image-path">{{ imageUrl.split('/').pop() || '-' }}</span>
-      <span class="image-dims" v-if="imageLoaded">{{ naturalWidth }} x {{ naturalHeight }}</span>
-      <div class="image-actions">
+  <div class="image-bbox-annotator">
+    <!-- 工具栏 -->
+    <div class="annotator-header">
+      <div class="header-left">
+        <span v-if="showTitle" class="annotator-title">{{ title || config?.title || '图片标注器' }}</span>
         <button
-          v-if="zoomable"
-          class="btn-sm"
+          class="btn-text"
+          :class="{ active: showAllBboxes }"
+          @click="toggleShowAll"
+        >
+          显示全部
+        </button>
+        <button
+          class="btn-text"
           :class="{ active: zoomMode }"
           @click="toggleZoomMode"
-          title="打开放大模式（z）"
         >
-          🔍
+          缩放
         </button>
-        <button class="btn-sm" @click="resetZoom" title="重置缩放">100%</button>
-        <slot name="actions"></slot>
+      </div>
+      <div class="header-right">
+        <template v-if="zoomMode">
+          <button class="btn-sm" @click="zoomOut" :disabled="zoomLevel <= minZoom" title="缩小">
+            −
+          </button>
+          <span class="zoom-level">{{ Math.round(zoomLevel * 100) }}%</span>
+          <button class="btn-sm" @click="zoomIn" :disabled="zoomLevel >= maxZoom" title="放大">
+            +
+          </button>
+          <button class="btn-sm" @click="resetZoom" title="重置">
+            重置
+          </button>
+        </template>
       </div>
     </div>
 
-    <!-- 图片容器 -->
-    <div class="image-wrapper">
+    <!-- 主内容区：左侧图片 + 右侧面板组 -->
+    <div class="annotator-body">
+      <!-- 左侧：图片画布 -->
       <div
         ref="imageContainer"
-        class="image-container"
-        :class="{ 'grabbing': isPanning }"
+        class="image-canvas-wrapper"
+        :class="{ 'zoom-mode': zoomMode, 'panning': isPanning }"
+        :style="{ width: imagePanelWidth + '%' }"
+        @wheel="handleWheel"
         @mousedown="handleCanvasMouseDown"
+        @contextmenu="handleCanvasContextMenu"
       >
-        <div ref="imageCanvas" class="image-canvas" :class="{ loaded: imageLoaded }">
+        <div class="image-canvas" :class="{ loaded: imageLoaded }">
           <img
             ref="imagePreview"
             :src="imageUrl"
-            alt="预览图片"
+            alt="标注图片"
             class="image-element"
+            :style="{ transform: `translate(${imageTranslate.x}px, ${imageTranslate.y}px) scale(${zoomLevel})` }"
             @load="onImageLoad"
           />
-          <div ref="bboxOverlays" class="bbox-overlays">
+
+          <!-- BBox 覆盖层 -->
+          <div v-if="imageLoaded" class="bbox-overlays">
             <div
-              v-for="bbox in bboxes"
-              :key="getPathKey(bbox.path)"
+              v-for="bbox in bboxList"
+              :key="bbox.id"
               class="bbox-overlay"
               :class="{
-                visible: isBboxVisible(bbox.path),
-                selected: isSelectedBbox(bbox.path)
+                visible: isBboxVisible(bbox.id),
+                selected: isSelected(bbox.id)
               }"
-              :data-path="JSON.stringify(bbox.path)"
-              :style="{
-                left: bbox.bbox[0] + 'px',
-                top: bbox.bbox[1] + 'px',
-                width: (bbox.bbox[2] - bbox.bbox[0]) + 'px',
-                height: (bbox.bbox[3] - bbox.bbox[1]) + 'px'
-              }"
-              @mousedown="handleBboxMouseDown($event, bbox.path)"
+              :style="getBboxStyle(bbox.bbox)"
+              @mousedown="handleBboxMouseDown($event, bbox.id)"
+              @click="handleBboxClick(bbox.id, $event)"
             >
+              <!-- 代表属性标签 -->
+              <span
+                v-if="isSelected(bbox.id) && bbox[representField]"
+                class="bbox-label"
+              >
+                {{ bbox[representField] }}
+              </span>
+
               <!-- 8 点调整手柄 -->
-              <div
-                v-if="isSelectedBbox(bbox.path)"
-                v-for="handle in ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']"
-                :key="handle"
-                class="resize-handle"
-                :class="handle"
-                :data-handle="handle"
-              ></div>
+              <template v-if="isSelected(bbox.id)">
+                <div
+                  v-for="handle in ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']"
+                  :key="handle"
+                  class="resize-handle"
+                  :class="handle"
+                  :data-handle="handle"
+                ></div>
+              </template>
             </div>
           </div>
+        </div>
+
+        <!-- 加载提示 -->
+        <div v-if="!imageLoaded" class="image-loading">
+          加载中...
+        </div>
+      </div>
+
+      <!-- 外层调整手柄（图片 | 右侧面板组） -->
+      <div
+        v-if="!readonly"
+        class="outer-resize-handle"
+        :class="{ active: isResizingOuter }"
+        @mousedown="startResizeOuter"
+      >
+        <div class="resize-bar"></div>
+      </div>
+
+      <!-- 右侧面板组：框调整 + 信息调整 -->
+      <div
+        class="right-panel-group"
+        :style="{ width: (100 - imagePanelWidth) + '%' }"
+      >
+        <!-- 左侧：框调整（BboxPropertyEditor） -->
+        <div
+          class="bbox-panel"
+          :style="{ width: bboxPanelWidth + '%' }"
+        >
+          <BboxPropertyEditor :readonly="readonly" />
+        </div>
+
+        <!-- 内层调整手柄（框调整 | 信息调整） -->
+        <div
+          v-if="!readonly"
+          class="inner-resize-handle"
+          :class="{ active: isResizingInner }"
+          @mousedown="startResizeInner"
+        >
+          <div class="resize-bar"></div>
+        </div>
+
+        <!-- 右侧：信息调整（属性编辑） -->
+        <div
+          class="info-panel"
+          :style="{ width: (100 - bboxPanelWidth) + '%' }"
+        >
+          <!-- 无选中提示 -->
+          <div v-if="!hasSelection" class="no-selection">
+            <p>请选择一个框</p>
+          </div>
+
+          <!-- 编辑表单 -->
+          <template v-else>
+            <div class="panel-section">
+              <div class="panel-section-title">坐标</div>
+              <div class="coord-grid">
+                <div class="coord-item">
+                  <label>X1</label>
+                  <input type="number" v-model.number="x1" :disabled="readonly" />
+                </div>
+                <div class="coord-item">
+                  <label>Y1</label>
+                  <input type="number" v-model.number="y1" :disabled="readonly" />
+                </div>
+                <div class="coord-item">
+                  <label>X2</label>
+                  <input type="number" v-model.number="x2" :disabled="readonly" />
+                </div>
+                <div class="coord-item">
+                  <label>Y2</label>
+                  <input type="number" v-model.number="y2" :disabled="readonly" />
+                </div>
+              </div>
+              <div class="coord-size">
+                {{ Math.abs(x2 - x1) }} × {{ Math.abs(y2 - y1) }} px
+              </div>
+            </div>
+
+            <!-- 动态属性 -->
+            <div v-if="properties.length > 0" class="panel-section">
+              <div class="panel-section-title">属性</div>
+              <div class="property-list">
+                <div
+                  v-for="prop in properties"
+                  :key="prop.name"
+                  class="property-item"
+                >
+                  <label>{{ prop.displayName }}</label>
+                  <input
+                    type="text"
+                    :value="getPropertyValue(prop.name)"
+                    @input="setProperty(prop.name, ($event.target as HTMLInputElement).value)"
+                    :disabled="readonly"
+                    :placeholder="String(prop.defaultValue || '')"
+                  />
+                </div>
+              </div>
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -428,96 +699,117 @@ const handleCanvasMouseup = () => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--bili-card-bg, #ffffff);
-  border-radius: 10px;
+  min-height: 300px;  /* 最小高度 */
+  background: #FFFFFF;
+  border-radius: 12px;
   overflow: hidden;
 }
 
-.image-info-bar {
+.annotator-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 15px;
-  background: var(--bili-bg, #f4f5f7);
-  border-bottom: 1px solid var(--bili-border, #e3e5e7);
-  font-size: 12px;
-  color: var(--bili-text-secondary, #9499a0);
+  padding: 8px 16px;
+  background: #F9FAFB;
+  border-bottom: 1px solid #E5E7EB;
   flex-shrink: 0;
+}
 
-  .image-path {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.annotator-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: #111827;
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+  border: none;
+  border-radius: 8px;
+  background: #FFFFFF;
+  color: #111827;
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  &:hover {
+    background: #F3F4F6;
   }
 
-  .image-actions {
-    display: flex;
-    gap: 8px;
-  }
-
-  .btn-sm {
-    padding: 4px 10px;
-    font-size: 12px;
-    border: none;
-    border-radius: 6px;
-    background: var(--bili-card-bg, #ffffff);
-    color: var(--bili-text-primary, #212121);
-    cursor: pointer;
-    transition: all 0.2s;
-
-    &:hover {
-      background: var(--bili-border, #e3e5e7);
-    }
-
-    &.active {
-      background: var(--bili-pink, #fb7299);
-      color: white;
-    }
+  &.active {
+    background: #165DFF;
+    color: white;
   }
 }
 
-.image-wrapper {
-  flex: 1;
-  overflow: auto;
-  padding: 15px;
+.btn-text {
+  padding: 4px 12px;
+  font-size: 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #6B7280;
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  &:hover {
+    color: #165DFF;
+    background: #F3F4F6;
+  }
+
+  &.active {
+    color: #165DFF;
+    background: #E8F3FF;
+  }
+}
+
+.annotator-body {
   display: flex;
-  justify-content: flex-start;
-  align-items: flex-start;
-  background: var(--bili-bg, #f4f5f7);
-  min-width: 0;
+  flex: 1;
   min-height: 0;
 }
 
-.image-container {
+.image-canvas-wrapper {
+  overflow: auto;
+  padding: 16px;
+  background: #F9FAFB;
+  display: flex;
+  justify-content: flex-start;
+  align-items: flex-start;
   position: relative;
-  display: inline-block;
+  flex-shrink: 0;
 
-  &.grabbing {
-    cursor: grabbing !important;
+  &.zoom-mode {
+    cursor: grab;
+  }
+
+  &.zoom-mode.panning {
+    cursor: grabbing;
   }
 }
 
 .image-canvas {
   position: relative;
   display: inline-block;
-  transform-origin: center center;
-  transition: transform 0.1s ease-out;
-
-  // 确保画布尺寸与图片自然尺寸一致
-  &.loaded {
-    min-width: 100%;
-    min-height: 100%;
-  }
 }
 
 .image-element {
   display: block;
-  border-radius: 6px;
-  pointer-events: none;
-  transform-origin: center center;
-  // 图片以自然尺寸显示，不压缩
+  border-radius: 8px;
   max-width: none;
   height: auto;
+  transform-origin: top left;
 }
 
 .bbox-overlays {
@@ -527,15 +819,12 @@ const handleCanvasMouseup = () => {
   right: 0;
   bottom: 0;
   pointer-events: none;
-  // 确保覆盖层与图片自然尺寸一致
-  width: 100%;
-  height: 100%;
 }
 
 .bbox-overlay {
   position: absolute;
-  border: 2px solid var(--bili-pink, #fb7299);
-  background-color: rgba(251, 114, 153, 0.15);
+  border: 2px solid #165DFF;
+  background-color: rgba(22, 93, 255, 0.15);
   box-sizing: border-box;
   pointer-events: auto;
   cursor: pointer;
@@ -546,20 +835,32 @@ const handleCanvasMouseup = () => {
   }
 
   &.selected {
-    background-color: rgba(251, 114, 153, 0.25);
-    border-color: var(--bili-pink, #fb7299);
+    background-color: rgba(22, 93, 255, 0.25);
+    border-width: 2px;
   }
 
   &:hover {
-    background-color: rgba(251, 114, 153, 0.3);
+    background-color: rgba(22, 93, 255, 0.3);
   }
+}
+
+.bbox-label {
+  position: absolute;
+  top: -22px;
+  left: 0;
+  background: #165DFF;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .resize-handle {
   position: absolute;
   width: 10px;
   height: 10px;
-  background: var(--bili-pink, #fb7299);
+  background: #165DFF;
   border: 2px solid white;
   border-radius: 50%;
   z-index: 10;
@@ -574,18 +875,192 @@ const handleCanvasMouseup = () => {
   &.w { left: -5px; top: 50%; cursor: w-resize; transform: translateY(-50%); }
 }
 
-/* 放大模式 */
-.zoom-mode {
-  .image-container {
-    cursor: grab;
+.image-loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #9CA3AF;
+  font-size: 14px;
+}
+
+/* 外层调整手柄 */
+.outer-resize-handle {
+  width: 8px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  background: #FFFFFF;
+  border-left: 1px solid #E5E7EB;
+  border-right: 1px solid #E5E7EB;
+  transition: background 0.15s ease;
+  z-index: 10;
+
+  &:hover {
+    background: #E8F3FF;
   }
 
-  .grabbing {
-    cursor: grabbing !important;
+  &.active {
+    background: #E8F3FF;
+  }
+}
+
+/* 内层调整手柄 */
+.inner-resize-handle {
+  width: 8px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  background: #FFFFFF;
+  border-left: 1px solid #E5E7EB;
+  border-right: 1px solid #E5E7EB;
+  transition: background 0.15s ease;
+  z-index: 10;
+
+  &:hover {
+    background: #E8F3FF;
   }
 
-  .bbox-overlay {
-    pointer-events: none;
+  &.active {
+    background: #E8F3FF;
   }
+}
+
+.resize-bar {
+  width: 4px;
+  height: 40px;
+  border-radius: 2px;
+  background: #E5E7EB;
+  transition: background 0.15s ease;
+
+  .outer-resize-handle:hover &,
+  .outer-resize-handle.active &,
+  .inner-resize-handle:hover &,
+  .inner-resize-handle.active & {
+    background: #165DFF;
+  }
+}
+
+/* 右侧面板组 */
+.right-panel-group {
+  display: flex;
+  flex-shrink: 0;
+  background: #FFFFFF;
+}
+
+.bbox-panel {
+  flex-shrink: 0;
+  border-right: 1px solid #E5E7EB;
+}
+
+.info-panel {
+  flex-shrink: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.no-selection {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9CA3AF;
+  font-size: 13px;
+}
+
+.panel-section {
+  margin-bottom: 20px;
+}
+
+.panel-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6B7280;
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.coord-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.coord-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  label {
+    font-size: 12px;
+    color: #6B7280;
+  }
+
+  input {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #E5E7EB;
+    border-radius: 6px;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.15s;
+
+    &:focus {
+      border-color: #165DFF;
+    }
+
+    &:disabled {
+      background: #F9FAFB;
+    }
+  }
+}
+
+.coord-size {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #9CA3AF;
+}
+
+.property-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.property-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  label {
+    font-size: 12px;
+    color: #6B7280;
+  }
+
+  input {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #E5E7EB;
+    border-radius: 6px;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.15s;
+
+    &:focus {
+      border-color: #165DFF;
+    }
+  }
+}
+
+.zoom-level {
+  font-size: 12px;
+  color: #374151;
+  min-width: 45px;
+  text-align: center;
 }
 </style>

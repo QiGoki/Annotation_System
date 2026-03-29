@@ -50,22 +50,3 @@ export interface Rect {
   label?: string
   id?: string
 }
-
-export interface ComponentConfig {
-  id: string
-  type: string
-  label: string
-  required: boolean
-  attributes?: {
-    options?: Array<{ value: string; label: string }>
-    defaultValue?: any
-    type?: string
-    rows?: number
-    placeholder?: string
-    maxLength?: number
-    multi?: boolean
-  }
-  validation?: {
-    message?: string
-  }
-}

@@ -1,18 +1,44 @@
 /**
- * 标注模块类型定义
+ * 标注模块类型定义 v3
  *
- * 架构说明：
- * - 每个组件需要声明它需要的字段（schema）
- * - 每个组件需要提供 fieldMapping 函数，用于智能推荐字段绑定
- * - 运行时通过 fieldBindings 将 JSON 数据绑定到组件
+ * 重构后的组件配置系统
  */
 
+// ==================== 基础类型 ====================
+
 /**
- * 字段 Schema 定义
- * 组件声明它需要哪些数据字段
+ * BBox 坐标格式 [x1, y1, x2, y2]
  */
-export interface FieldSchema {
-  type: 'string' | 'number' | 'boolean' | 'array' | 'object'
+export type BboxCoord = [number, number, number, number]
+
+/**
+ * 单个 BBox 数据项
+ */
+export interface BboxItem {
+  id: string                    // 内部唯一 ID
+  path: number[]                // 在原数据中的路径
+  bbox: BboxCoord               // 坐标
+  [key: string]: any            // 动态属性
+}
+
+// ==================== ConfigSchema 定义 ====================
+
+/**
+ * 字段选择类型（从解析的字段中选择）
+ */
+export interface FieldSelectSchema {
+  type: 'field-select'
+  label: string
+  required?: boolean
+  default?: string
+  description?: string
+}
+
+/**
+ * 基础字段类型
+ */
+export interface BaseFieldSchema {
+  type: 'string' | 'number' | 'boolean'
   label: string
   required?: boolean
   default?: any
@@ -20,30 +46,148 @@ export interface FieldSchema {
 }
 
 /**
- * 模块 Schema
+ * 选择类型
  */
-export interface ModuleSchema {
-  fields: Record<string, FieldSchema>
+export interface SelectSchema {
+  type: 'select'
+  label: string
+  options: string[] | { label: string; value: any }[]
+  required?: boolean
+  default?: string
 }
 
 /**
- * fieldMapping 函数类型
- * 接收原始数据，返回推荐的数据值
+ * 对象类型（嵌套字段）
  */
-export type FieldMappingFn = (data: any) => any
+export interface ObjectSchema {
+  type: 'object'
+  fields: Record<string, ConfigFieldSchema>
+}
+
+/**
+ * 分组类型（UI 展示用）
+ */
+export interface GroupSchema {
+  type: 'group'
+  label: string
+  fields: Record<string, ConfigFieldSchema>
+}
+
+/**
+ * 数组类型
+ */
+export interface ArraySchema {
+  type: 'array'
+  label: string
+  itemSchema: Record<string, ConfigFieldSchema>
+}
+
+/**
+ * 字符串数组类型（textarea 编辑）
+ */
+export interface ArrayStringSchema {
+  type: 'array-string'
+  label: string
+  description?: string
+  default?: string[]
+}
+
+/**
+ * 条件显示
+ */
+export interface ShowIfCondition {
+  [field: string]: any
+}
+
+/**
+ * 配置字段 Schema（联合类型）
+ */
+export type ConfigFieldSchema =
+  | BaseFieldSchema
+  | FieldSelectSchema
+  | SelectSchema
+  | ObjectSchema
+  | GroupSchema
+  | ArraySchema
+  | ArrayStringSchema
+  | (BaseFieldSchema & { showIf?: ShowIfCondition })
+  | (FieldSelectSchema & { showIf?: ShowIfCondition })
+  | (SelectSchema & { showIf?: ShowIfCondition })
+
+// ==================== ImageBBoxAnnotator 配置 ====================
+
+/**
+ * 图片设置
+ */
+export interface ImageConfig {
+  field: string                 // JSON 路径，如 "image"
+  pathClean?: {
+    enabled: boolean
+    prefix: string              // 要清除的路径前缀
+  }
+}
+
+/**
+ * BBox 数据源配置
+ */
+export interface BboxSourceConfig {
+  mode: 'list' | 'string'
+
+  // list 模式
+  dataPath?: string             // 数据路径
+  bboxField?: string            // bbox 字段名
+  childrenField?: string        // 子节点字段名（树形结构时使用）
+  displayField?: string         // 显示字段名（树形结构时使用）
+
+  // string 模式
+  stringPath?: string           // 字符串字段路径
+  extractRegex?: string         // 提取正则
+}
+
+/**
+ * BBox 属性定义
+ */
+export interface BboxPropertyDef {
+  name: string                  // 属性标识
+  sourceField: string           // 来源字段
+  displayName: string           // 显示名称
+  defaultValue?: any            // 默认值
+}
+
+/**
+ * 输出设置
+ */
+export interface OutputConfig {
+  fields: string[]              // 需要输出的字段名
+}
+
+/**
+ * ImageBBoxAnnotator 完整配置
+ */
+export interface ImageBBoxAnnotatorConfig {
+  title: string
+  image: ImageConfig
+  bboxSource: BboxSourceConfig
+  bboxProperties: BboxPropertyDef[]
+  representField: string        // 代表属性字段名
+  output: OutputConfig
+}
+
+// ==================== 模块定义系统 ====================
 
 /**
  * 模块定义（组件注册到市场时的格式）
  */
 export interface ModuleDefinition {
-  id: string                              // 组件唯一标识
-  name: string                            // 组件名称
-  icon: string                            // 图标
-  description?: string                    // 描述
+  id: string
+  name: string
+  icon: string
+  description?: string
   component: any                          // Vue 组件
-  schema: ModuleSchema                    // 声明需要的字段
-  fieldMapping: Record<string, FieldMappingFn>  // 智能推荐函数
-  defaultProps?: Record<string, any>      // 默认属性
+
+  // 新版：配置 Schema（用于配置面板渲染）
+  configSchema?: Record<string, ConfigFieldSchema>
+  defaultConfig?: any                     // 默认配置
 }
 
 /**
@@ -51,13 +195,22 @@ export interface ModuleDefinition {
  */
 export interface ModuleInstance {
   id: string                              // 实例 ID
-  type: string                            // 模块类型（对应 ModuleDefinition.id）
-  col: number                             // 列位置 (1=左，2=中，3=右)
+  type: string                            // 模块类型
+  col: number                             // 列位置
   row: number                             // 行位置
-  width: string                           // 宽度 (如 '60%', '350px')
+  width: string                           // 宽度
   height: string                          // 高度
-  fieldBindings: Record<string, string>   // 字段绑定 { fieldName: jsonPath }
-  props: Record<string, any>              // 组件属性
+  config?: ImageBBoxAnnotatorConfig | any // 模块配置
+}
+
+// ==================== 页面配置 ====================
+
+/**
+ * 数据源配置（用于保存和恢复）
+ */
+export interface DataSourceConfig {
+  exampleJsonText?: string       // 原始 JSON 文本
+  customFieldRules?: CustomFieldRule[] // 自定义字段规则
 }
 
 /**
@@ -66,58 +219,49 @@ export interface ModuleInstance {
 export interface PageConfig {
   modules: ModuleInstance[]
   layout?: LayoutConfig
+  dataSource?: DataSourceConfig  // 数据源配置
 }
 
 /**
  * 布局配置
  */
 export interface LayoutConfig {
-  columnCount: number                     // 列数（默认 3）
-  columns: ColumnConfig[]                 // 各列配置
+  columnCount: number
+  columns: ColumnConfig[]
+  leftColumnWidth?: number  // 左列宽度（像素）
 }
 
 /**
  * 列配置
  */
 export interface ColumnConfig {
-  index: number                           // 列索引 (1-based)
-  width: string                           // 宽度百分比，如 '25%', '40%'
-  label?: string                          // 列标签，如 '左列', '中列', '右列'
+  index: number
+  width: string
+  label?: string
+  fill?: boolean  // 是否平铺满画布
 }
 
-/**
- * 标注项目配置
- */
-export interface AnnotationProjectConfig {
-  projectId: string
-  name: string
-  type: string
-  pageConfig: PageConfig
-  outputConfig?: {
-    format: 'jsonl' | 'json'
-    fields?: string[]
-  }
-}
+// ==================== 辅助类型 ====================
 
 /**
  * 解析后的字段（用于字段提取 UI 展示）
  */
 export interface ParsedField {
-  path: string          // JSONPath，如 'image', 'components[0].bbox'
-  type: string          // 类型
-  sampleValue?: any     // 示例值
-  length?: number       // 数组长度（如果是数组）
-  preview?: string      // 对象预览（如果是对象）
+  path: string
+  type: string
+  sampleValue?: any
+  length?: number
+  preview?: string
 }
 
 /**
  * 自定义字段解析规则
  */
 export interface CustomFieldRule {
-  name: string                      // 自定义字段名称
-  ruleType: 'path' | 'regex'        // 规则类型
-  path?: string                     // JSONPath（当 ruleType 为 path 时）
-  regex?: string                    // 正则表达式（当 ruleType 为 regex 时）
-  regexSource?: string              // 正则匹配的源字段路径
-  targetField?: string              // 目标字段名（用于 regex 匹配后的结果存储）
+  name: string
+  ruleType: 'path' | 'regex'
+  path?: string
+  regex?: string
+  regexSource?: string
+  targetField?: string
 }

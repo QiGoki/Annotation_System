@@ -3,21 +3,24 @@
  * 两列布局容器组件
  * 支持可调整宽度的两列布局
  */
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import type { LayoutConfig, ColumnConfig } from '@/types/annotation-tool'
 import AnnotationPanel from './AnnotationPanel.vue'
 
 interface Props {
   layout: LayoutConfig
   readonly?: boolean
+  leftColumnWidth?: number  // 左列宽度（像素）
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  readonly: false
+  readonly: false,
+  leftColumnWidth: 350
 })
 
 const emit = defineEmits<{
   'update:layout': [layout: LayoutConfig]
+  'update:leftColumnWidth': [width: number]  // 左列宽度变化
 }>()
 
 // 拖拽调整状态
@@ -26,8 +29,13 @@ const resizeColumn = ref<'left' | null>(null)
 const resizeStartX = ref(0)
 const resizeStartWidth = ref(0)
 
-// 列宽默认值
-const leftColumnWidth = ref(350)
+// 内部列宽状态
+const internalLeftWidth = ref(props.leftColumnWidth)
+
+// 监听外部宽度变化
+watch(() => props.leftColumnWidth, (newWidth) => {
+  internalLeftWidth.value = newWidth
+})
 
 // 开始调整列宽
 const startResize = (column: 'left', event: MouseEvent) => {
@@ -36,7 +44,7 @@ const startResize = (column: 'left', event: MouseEvent) => {
   isResizing.value = true
   resizeColumn.value = column
   resizeStartX.value = event.clientX
-  resizeStartWidth.value = leftColumnWidth.value
+  resizeStartWidth.value = internalLeftWidth.value
 
   document.addEventListener('mousemove', handleResize)
   document.addEventListener('mouseup', stopResize)
@@ -48,10 +56,10 @@ const handleResize = (event: MouseEvent) => {
   if (!isResizing.value) return
 
   const deltaX = event.clientX - resizeStartX.value
-  const newWidth = Math.max(200, Math.min(600, resizeStartWidth.value + deltaX))
+  const newWidth = Math.max(200, resizeStartWidth.value + deltaX)
 
   if (resizeColumn.value === 'left') {
-    leftColumnWidth.value = newWidth
+    internalLeftWidth.value = newWidth
   }
 }
 
@@ -61,10 +69,18 @@ const stopResize = () => {
   resizeColumn.value = null
   document.removeEventListener('mousemove', handleResize)
   document.removeEventListener('mouseup', stopResize)
+
+  // 通知父组件宽度变化
+  emit('update:leftColumnWidth', internalLeftWidth.value)
 }
 
 // 获取列宽样式
-const getLeftColumnWidth = computed(() => `${leftColumnWidth.value}px`)
+const getLeftColumnWidth = computed(() => `${internalLeftWidth.value}px`)
+
+// 暴露方法给父组件获取当前宽度
+defineExpose({
+  getLeftColumnWidth: () => internalLeftWidth.value
+})
 </script>
 
 <template>
@@ -121,12 +137,12 @@ const getLeftColumnWidth = computed(() => `${leftColumnWidth.value}px`)
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
-  background: var(--bili-card-bg, #ffffff);
+  background: #FFFFFF;
 }
 
 .column-left {
   flex-shrink: 0;
-  border-right: 1px solid var(--bili-border, #e3e5e7);
+  border-right: 1px solid #E5E7EB;
 }
 
 .column-center {
@@ -141,12 +157,12 @@ const getLeftColumnWidth = computed(() => `${leftColumnWidth.value}px`)
   align-items: center;
   justify-content: center;
   cursor: col-resize;
-  transition: background 0.2s;
+  transition: background 0.15s ease;
   position: relative;
   z-index: 10;
 
   &:hover {
-    background: var(--bili-pink, #fb7299);
+    background: #E8F3FF;
   }
 }
 
@@ -154,11 +170,11 @@ const getLeftColumnWidth = computed(() => `${leftColumnWidth.value}px`)
   width: 4px;
   height: 40px;
   border-radius: 2px;
-  background: var(--bili-border, #e3e5e7);
-  transition: background 0.2s;
+  background: #E5E7EB;
+  transition: background 0.15s ease;
 
   .resize-handle:hover & {
-    background: var(--bili-pink, #fb7299);
+    background: #165DFF;
   }
 }
 
@@ -167,7 +183,7 @@ const getLeftColumnWidth = computed(() => `${leftColumnWidth.value}px`)
   user-select: none;
 
   .resize-handle-bar {
-    background: var(--bili-pink, #fb7299);
+    background: #165DFF;
   }
 }
 </style>

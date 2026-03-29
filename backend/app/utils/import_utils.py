@@ -4,9 +4,10 @@
 from sqlalchemy.orm import Session
 from typing import Iterator, List
 import json
+import os
 
 from ..models.project import Project
-from ..services.task_service import TaskService
+from ..models.task import Task
 
 
 class ImportService:
@@ -29,13 +30,31 @@ class ImportService:
         return [data]
 
     @staticmethod
-    def import_data(db: Session, project_id: int, data_items: List[dict]) -> int:
-        """导入数据到项目"""
+    def import_data(db: Session, project_id: int, data_items: List[dict], filename: str = None) -> int:
+        """导入数据到项目
+
+        一个文件创建一个 Task，data_items 存储整个数据数组
+        """
         # 验证项目存在
         project = db.query(Project).filter(Project.id == project_id).first()
         if not project:
             raise ValueError("项目不存在")
 
-        # 批量创建任务
-        count = TaskService.batch_create_tasks(db, project_id, data_items)
-        return count
+        # 生成任务名称
+        if filename:
+            # 去除扩展名作为任务名称
+            task_name = os.path.splitext(filename)[0]
+        else:
+            task_name = f"任务_{project_id}"
+
+        # 创建一个 Task，存储所有数据
+        task = Task(
+            project_id=project_id,
+            name=task_name,
+            data_source=data_items  # 存储整个数据数组
+        )
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+
+        return len(data_items)  # 返回数据条数

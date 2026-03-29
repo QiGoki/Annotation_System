@@ -1,47 +1,41 @@
 <script setup lang="ts">
 /**
- * 任务列表页面 - 支持任务领取
+ * 任务列表页面 - StepFun风格
  */
 import { ref, onMounted, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import { getMyProjects } from '@/api/project_members'
 import { getTaskList, claimTask, releaseTask } from '@/api/task'
 import { getProjectMembers } from '@/api/project_members'
 
 const router = useRouter()
 
-// 数据
 const tasks = ref<any[]>([])
 const projects = ref<any[]>([])
 const members = ref<any[]>([])
 const loading = ref(false)
 const claimLoading = ref<number | null>(null)
 
-// 筛选条件
 const filters = ref({
   project_id: undefined as number | undefined,
   status: undefined as string | undefined,
   assigned_to: undefined as number | undefined
 })
 
-// 分页
 const pagination = ref({
   page: 1,
   page_size: 20,
   total: 0
 })
 
-// 加载我的项目
 const loadProjects = async () => {
   try {
     projects.value = await getMyProjects()
-  } catch (e: any) {
-    ElMessage.error('加载项目列表失败')
+  } catch (e) {
+    alert('加载项目列表失败')
   }
 }
 
-// 加载所有项目的成员（用于显示领取人名称）
 const loadAllMembers = async () => {
   try {
     const allMembers = new Map<number, { user_id: number; username: string }>()
@@ -51,28 +45,20 @@ const loadAllMembers = async () => {
         projMembers.forEach(m => {
           allMembers.set(m.user_id, { user_id: m.user_id, username: m.username })
         })
-      } catch (e) {
-        // 忽略单个项目的成员加载失败
-      }
+      } catch (e) {}
     }
     members.value = Array.from(allMembers.values())
-  } catch (e: any) {
+  } catch (e) {
     members.value = []
   }
 }
 
-// 加载成员列表（用于筛选器）
 const loadMembersForFilter = async (projectId: number) => {
   try {
-    const projMembers = await getProjectMembers(projectId)
-    // 更新成员列表用于筛选器显示
-    members.value = projMembers
-  } catch (e: any) {
-    // 忽略错误
-  }
+    members.value = await getProjectMembers(projectId)
+  } catch (e) {}
 }
 
-// 加载任务列表
 const loadTasks = async () => {
   loading.value = true
   try {
@@ -83,12 +69,9 @@ const loadTasks = async () => {
       page: pagination.value.page,
       page_size: pagination.value.page_size
     }
-
-    // 清除未定义的参数
     Object.keys(params).forEach(key => {
       if (params[key] === undefined) delete params[key]
     })
-
     const result = await getTaskList(params)
     if (Array.isArray(result)) {
       tasks.value = result
@@ -97,14 +80,13 @@ const loadTasks = async () => {
       tasks.value = result.data || []
       pagination.value.total = result.total || 0
     }
-  } catch (e: any) {
-    ElMessage.error('加载任务列表失败')
+  } catch (e) {
+    alert('加载任务列表失败')
   } finally {
     loading.value = false
   }
 }
 
-// 项目变化时重新加载
 watch(() => filters.value.project_id, (newProjectId) => {
   if (newProjectId) {
     loadMembersForFilter(newProjectId)
@@ -114,74 +96,59 @@ watch(() => filters.value.project_id, (newProjectId) => {
   loadTasks()
 })
 
-// 其他筛选条件变化时重新加载
 watch(() => [filters.value.status, filters.value.assigned_to, pagination.value.page], () => {
   loadTasks()
 })
 
-// 领取任务
-const handleClaim = async (taskId: number) => {
-  claimLoading.value = taskId
+const confirmDialog = ref<{ show: boolean; type: string; taskId: number | null }>({
+  show: false,
+  type: '',
+  taskId: null
+})
+
+const handleClaim = (taskId: number) => {
+  confirmDialog.value = { show: true, type: 'claim', taskId }
+}
+
+const handleRelease = (taskId: number) => {
+  confirmDialog.value = { show: true, type: 'release', taskId }
+}
+
+const confirmAction = async () => {
+  if (!confirmDialog.value.taskId) return
+  claimLoading.value = confirmDialog.value.taskId
   try {
-    await claimTask(taskId)
-    ElMessage.success('领取成功')
+    if (confirmDialog.value.type === 'claim') {
+      await claimTask(confirmDialog.value.taskId)
+      alert('领取成功')
+    } else {
+      await releaseTask(confirmDialog.value.taskId)
+      alert('已释放任务')
+    }
     loadTasks()
   } catch (e: any) {
-    let errorMsg = '领取失败'
-    if (e.response?.data?.detail) {
-      errorMsg = e.response.data.detail
-    }
-    ElMessage.error(errorMsg)
+    alert(e.response?.data?.detail || '操作失败')
   } finally {
     claimLoading.value = null
+    confirmDialog.value = { show: false, type: '', taskId: null }
   }
 }
 
-// 释放任务
-const handleRelease = async (taskId: number) => {
-  try {
-    await ElMessageBox.confirm('确定要释放此任务吗？释放后其他人可以领取。', '确认释放', {
-      type: 'warning'
-    })
-    await releaseTask(taskId)
-    ElMessage.success('已释放任务')
-    loadTasks()
-  } catch (e: any) {
-    if (e !== 'cancel') {
-      let errorMsg = '释放失败'
-      if (e.response?.data?.detail) {
-        errorMsg = e.response.data.detail
-      }
-      ElMessage.error(errorMsg)
-    }
-  }
-}
-
-// 获取用户名称 - 使用 Map 缓存
-const getUserName = (userId: number | null) => {
-  if (!userId) return '-'
-  const member = members.value.find(m => m.user_id === userId)
-  return member ? member.username : `用户${userId}`
-}
-
-// 创建成员 ID 到用户名的映射
 const memberNameMap = computed(() => {
   const map = new Map<number, string>()
   members.value.forEach(m => map.set(m.user_id, m.username))
   return map
 })
 
-// 状态标签类型
-const getStatusType = (status: string) => {
+const getStatusClass = (status: string) => {
   const map: Record<string, string> = {
-    'pending': 'info',
-    'doing': 'warning',
-    'completed': 'success'
+    'pending': 'tag tag-primary',
+    'doing': 'tag tag-warning',
+    'completed': 'tag tag-success'
   }
-  return map[status] || 'info'
+  return map[status] || 'tag tag-default'
 }
 
-// 状态文本
 const getStatusText = (status: string) => {
   const map: Record<string, string> = {
     'pending': '待领取',
@@ -191,13 +158,11 @@ const getStatusText = (status: string) => {
   return map[status] || status
 }
 
-// 获取项目名称
 const getProjectName = (projectId: number) => {
   const proj = projects.value.find(p => p.id === projectId)
   return proj ? proj.name : '-'
 }
 
-// 重置筛选
 const handleReset = () => {
   filters.value = {
     project_id: undefined,
@@ -207,9 +172,24 @@ const handleReset = () => {
   pagination.value.page = 1
 }
 
+const formatDate = (dateStr: string) => {
+  return new Date(dateStr).toLocaleDateString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
+const totalPages = computed(() => Math.ceil(pagination.value.total / pagination.value.page_size))
+
+const changePage = (page: number) => {
+  pagination.value.page = page
+}
+
 onMounted(() => {
   loadProjects().then(() => {
-    // 项目加载完成后加载所有成员
     loadAllMembers()
   })
   loadTasks()
@@ -217,182 +197,261 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="task-list">
-    <div class="header">
-      <h2>任务列表</h2>
+  <div class="page">
+    <!-- 页面头部 -->
+    <div class="page-header">
+      <h1 class="page-title">任务列表</h1>
     </div>
 
     <!-- 筛选区域 -->
-    <el-card class="filter-card">
-      <el-form :inline="true" :model="filters">
-        <el-form-item label="所属项目">
-          <el-select
-            v-model="filters.project_id"
-            placeholder="全部项目"
-            clearable
-            style="width: 200px"
-          >
-            <el-option
-              v-for="proj in projects"
-              :key="proj.id"
-              :label="proj.name"
-              :value="proj.id"
-            />
-          </el-select>
-        </el-form-item>
+    <div class="card">
+      <div class="filters">
+        <div class="filter-group">
+          <label class="filter-label">所属项目</label>
+          <select v-model="filters.project_id" class="form-input filter-select">
+            <option :value="undefined">全部项目</option>
+            <option v-for="proj in projects" :key="proj.id" :value="proj.id">{{ proj.name }}</option>
+          </select>
+        </div>
 
-        <el-form-item label="状态">
-          <el-select
-            v-model="filters.status"
-            placeholder="全部状态"
-            clearable
-            style="width: 120px"
-          >
-            <el-option label="待领取" value="pending" />
-            <el-option label="标注中" value="doing" />
-            <el-option label="已完成" value="completed" />
-          </el-select>
-        </el-form-item>
+        <div class="filter-group">
+          <label class="filter-label">状态</label>
+          <select v-model="filters.status" class="form-input filter-select-sm">
+            <option :value="undefined">全部状态</option>
+            <option value="pending">待领取</option>
+            <option value="doing">标注中</option>
+            <option value="completed">已完成</option>
+          </select>
+        </div>
 
-        <el-form-item label="领取人">
-          <el-select
-            v-model="filters.assigned_to"
-            placeholder="全部成员"
-            clearable
-            style="width: 150px"
-          >
-            <el-option
-              v-for="m in members"
-              :key="m.user_id"
-              :label="m.username"
-              :value="m.user_id"
-            />
-          </el-select>
-        </el-form-item>
+        <div class="filter-group">
+          <label class="filter-label">领取人</label>
+          <select v-model="filters.assigned_to" class="form-input filter-select">
+            <option :value="undefined">全部成员</option>
+            <option v-for="m in members" :key="m.user_id" :value="m.user_id">{{ m.username }}</option>
+          </select>
+        </div>
 
-        <el-form-item>
-          <el-button type="primary" @click="loadTasks">查询</el-button>
-          <el-button @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
+        <div class="filter-actions">
+          <button class="btn btn-primary btn-sm" @click="loadTasks">查询</button>
+          <button class="btn btn-secondary btn-sm" @click="handleReset">重置</button>
+        </div>
+      </div>
+    </div>
 
     <!-- 任务列表 -->
-    <el-card v-loading="loading">
-      <el-table :data="tasks" style="width: 100%">
-        <el-table-column prop="id" label="ID" width="60" />
-        <el-table-column label="所属项目" width="150">
-          <template #default="{ row }">
-            {{ getProjectName(row.project_id) }}
-          </template>
-        </el-table-column>
-        <el-table-column label="数据源" min-width="200">
-          <template #default="{ row }">
-            <span v-if="row.data_source?.type === 'image'">
-              <el-icon><picture /></el-icon>
-              {{ row.data_source.filename || '图像' }}
-            </span>
-            <span v-else-if="row.data_source?.type === 'text'">
-              <el-icon><document /></el-icon>
-              {{ (row.data_source.content || '').substring(0, 30) }}...
-            </span>
-            <span v-else>-</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="status" label="状态" width="90">
-          <template #default="{ row }">
-            <el-tag :type="getStatusType(row.status)">
-              {{ getStatusText(row.status) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="领取人" width="120">
-          <template #default="{ row }">
-            {{ row.assigned_to ? (memberNameMap.get(row.assigned_to) || `用户${row.assigned_to}`) : '-' }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="created_at" label="创建时间" width="160">
-          <template #default="{ row }">
-            {{ new Date(row.created_at).toLocaleString('zh-CN') }}
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
-          <template #default="{ row }">
-            <!-- 待领取状态 -->
-            <el-button
-              v-if="row.status === 'pending'"
-              type="primary"
-              size="small"
-              :loading="claimLoading === row.id"
-              @click="handleClaim(row.id)"
-            >
-              领取
-            </el-button>
-
-            <!-- 已领取状态 -->
-            <template v-else-if="row.status === 'doing'">
-              <el-button
-                type="warning"
-                size="small"
-                @click="handleRelease(row.id)"
-              >
-                释放
-              </el-button>
-              <el-button
-                type="primary"
-                size="small"
-                @click="$router.push(`/annotate/${row.id}`)"
-              >
-                标注
-              </el-button>
-            </template>
-
-            <!-- 已完成状态 -->
-            <el-tag v-else type="success" size="small">
-              已完成
-            </el-tag>
-          </template>
-        </el-table-column>
-      </el-table>
+    <div class="card table-card">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>任务名称</th>
+            <th>所属项目</th>
+            <th>数据数量</th>
+            <th>状态</th>
+            <th>领取人</th>
+            <th>创建时间</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="task in tasks" :key="task.id">
+            <td>{{ task.id }}</td>
+            <td>
+              <span class="task-name">{{ task.name || `任务 ${task.id}` }}</span>
+            </td>
+            <td>
+              <span class="link">{{ getProjectName(task.project_id) }}</span>
+            </td>
+            <td>
+              <span class="data-count">{{ Array.isArray(task.data_source) ? task.data_source.length : 1 }} 条</span>
+            </td>
+            <td>
+              <span :class="getStatusClass(task.status)">{{ getStatusText(task.status) }}</span>
+            </td>
+            <td>{{ task.assigned_to ? (memberNameMap.get(task.assigned_to) || `用户${task.assigned_to}`) : '-' }}</td>
+            <td>{{ formatDate(task.created_at) }}</td>
+            <td>
+              <button v-if="task.status === 'pending'" class="btn btn-primary btn-sm" @click="handleClaim(task.id)">领取</button>
+              <div v-else-if="task.status === 'doing'" class="actions">
+                <button class="btn btn-warning btn-sm" @click="handleRelease(task.id)">释放</button>
+                <button class="btn btn-primary btn-sm" @click="router.push(`/annotate/${task.id}`)">标注</button>
+              </div>
+              <span v-else class="tag tag-success">已完成</span>
+            </td>
+          </tr>
+          <tr v-if="tasks.length === 0 && !loading">
+            <td colspan="8" class="empty">暂无任务</td>
+          </tr>
+        </tbody>
+      </table>
 
       <!-- 分页 -->
-      <div class="pagination-container">
-        <el-pagination
-          v-model:current-page="pagination.page"
-          v-model:page-size="pagination.page_size"
-          :total="pagination.total"
-          :page-sizes="[10, 20, 50, 100]"
-          layout="total, sizes, prev, pager, next, jumper"
-          @change="loadTasks"
-        />
+      <div v-if="pagination.total > 0" class="pagination">
+        <span class="pagination-total">共 {{ pagination.total }} 条</span>
+        <button class="pagination-btn" :disabled="pagination.page === 1" @click="changePage(pagination.page - 1)">上一页</button>
+        <span class="pagination-info">{{ pagination.page }} / {{ totalPages }}</span>
+        <button class="pagination-btn" :disabled="pagination.page >= totalPages" @click="changePage(pagination.page + 1)">下一页</button>
       </div>
-    </el-card>
+
+      <div v-if="loading" class="loading-overlay">
+        <div class="loading-spinner"></div>
+      </div>
+    </div>
+
+    <!-- 确认对话框 -->
+    <div v-if="confirmDialog.show" class="dialog-overlay" @click.self="confirmDialog.show = false">
+      <div class="dialog">
+        <div class="dialog-title">{{ confirmDialog.type === 'claim' ? '确认领取' : '确认释放' }}</div>
+        <div class="dialog-content">
+          {{ confirmDialog.type === 'claim' ? '确定要领取此任务吗？' : '确定要释放此任务吗？释放后其他人可以领取。' }}
+        </div>
+        <div class="dialog-footer">
+          <button class="btn btn-secondary" @click="confirmDialog.show = false">取消</button>
+          <button class="btn btn-primary" @click="confirmAction">确定</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
-<style scoped lang="scss">
-.task-list {
-  .header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 16px;
+<style scoped>
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
 
-    h2 {
-      margin: 0;
-      font-size: 20px;
-      font-weight: 600;
-    }
-  }
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
 
-  .filter-card {
-    margin-bottom: 16px;
-  }
+.page-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0;
+}
 
-  .pagination-container {
-    display: flex;
-    justify-content: flex-end;
-    margin-top: 16px;
-  }
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.filter-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+}
+
+.filter-select {
+  width: 200px;
+}
+
+.filter-select-sm {
+  width: 120px;
+}
+
+.filter-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.table-card {
+  position: relative;
+  padding: 0;
+  overflow: hidden;
+}
+
+.link {
+  color: #165DFF;
+  font-weight: 500;
+}
+
+.task-name {
+  font-weight: 500;
+  color: #111827;
+}
+
+.data-count {
+  color: #6B7280;
+  font-size: 13px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-warning {
+  background-color: #F59E0B;
+  color: white;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.btn-warning:hover {
+  background-color: #D97706;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px;
+  border-top: 1px solid #E5E7EB;
+}
+
+.pagination-total {
+  font-size: 14px;
+  color: #6B7280;
+}
+
+.pagination-info {
+  font-size: 14px;
+  color: #111827;
+}
+
+.pagination-btn {
+  padding: 8px 16px;
+  font-size: 14px;
+  color: #111827;
+  background: white;
+  border: 1px solid #E5E7EB;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  border-color: #165DFF;
+  color: #165DFF;
+}
+
+.pagination-btn:disabled {
+  color: #D1D5DB;
+  cursor: not-allowed;
+}
+
+.empty {
+  text-align: center;
+  color: #9CA3AF;
+  padding: 40px 16px;
 }
 </style>

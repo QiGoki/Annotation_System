@@ -2,13 +2,14 @@
 任务 Schema
 """
 from pydantic import BaseModel, Field
-from typing import Optional, Any
+from typing import Optional, Any, List
 from datetime import datetime
 
 
 class TaskBase(BaseModel):
     """任务基础 Schema"""
-    data_source: dict = Field(..., description="数据源：图片 URL/路径 或 文本内容")
+    name: Optional[str] = Field(None, description="任务名称（如文件名）")
+    data_source: Any = Field(..., description="数据源：数组形式存储多条数据")
 
 
 class TaskCreate(TaskBase):

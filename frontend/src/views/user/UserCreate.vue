@@ -1,77 +1,12 @@
-<template>
-  <div class="user-create">
-    <el-card class="form-card">
-      <template #header>
-        <div class="card-header">
-          <h2>创建用户</h2>
-          <el-button @click="$router.push('/users')">返回用户列表</el-button>
-        </div>
-      </template>
-
-      <el-form
-        ref="formRef"
-        :model="formData"
-        :rules="rules"
-        label-width="100px"
-        @submit.prevent="handleSubmit"
-      >
-        <el-form-item label="用户名" prop="username">
-          <el-input
-            v-model="formData.username"
-            placeholder="请输入用户名（3-20 个字符）"
-            maxlength="20"
-            show-word-limit
-          />
-        </el-form-item>
-
-        <el-form-item label="密码" prop="password">
-          <el-input
-            v-model="formData.password"
-            type="password"
-            placeholder="请输入密码（至少 6 位）"
-            show-password
-          />
-        </el-form-item>
-
-        <el-form-item label="确认密码" prop="confirmPassword">
-          <el-input
-            v-model="formData.confirmPassword"
-            type="password"
-            placeholder="请再次输入密码"
-            show-password
-          />
-        </el-form-item>
-
-        <el-form-item label="角色" prop="role">
-          <el-radio-group v-model="formData.role">
-            <el-radio label="annotator">标注员</el-radio>
-            <el-radio label="admin">管理员</el-radio>
-          </el-radio-group>
-        </el-form-item>
-
-        <el-form-item label="启用状态" prop="is_active">
-          <el-switch v-model="formData.is_active" active-text="启用" inactive-text="禁用" />
-        </el-form-item>
-
-        <el-form-item>
-          <el-button type="primary" :loading="loading" @click="handleSubmit">
-            创建用户
-          </el-button>
-          <el-button @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
-  </div>
-</template>
-
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+/**
+ * 创建用户页面 - StepFun风格
+ */
+import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
 import { createUser } from '@/api/user'
 
 const router = useRouter()
-const formRef = ref()
 const loading = ref(false)
 
 const formData = reactive({
@@ -82,38 +17,41 @@ const formData = reactive({
   is_active: true
 })
 
-// 验证确认密码
-const validateConfirmPassword = (rule: any, value: string, callback: Function) => {
-  if (value !== formData.password) {
-    callback(new Error('两次输入的密码不一致'))
-  } else {
-    callback()
+const errors = ref<{ username?: string; password?: string; confirmPassword?: string }>({})
+
+const validate = () => {
+  errors.value = {}
+  let valid = true
+
+  if (!formData.username) {
+    errors.value.username = '请输入用户名'
+    valid = false
+  } else if (formData.username.length < 3 || formData.username.length > 20) {
+    errors.value.username = '用户名长度应在 3-20 个字符之间'
+    valid = false
   }
+
+  if (!formData.password) {
+    errors.value.password = '请输入密码'
+    valid = false
+  } else if (formData.password.length < 6) {
+    errors.value.password = '密码长度至少 6 位'
+    valid = false
+  }
+
+  if (!formData.confirmPassword) {
+    errors.value.confirmPassword = '请确认密码'
+    valid = false
+  } else if (formData.confirmPassword !== formData.password) {
+    errors.value.confirmPassword = '两次输入的密码不一致'
+    valid = false
+  }
+
+  return valid
 }
 
-// 表单验证规则
-const rules = computed(() => ({
-  username: [
-    { required: true, message: '请输入用户名', trigger: 'blur' },
-    { min: 3, max: 20, message: '用户名长度应在 3-20 个字符之间', trigger: 'blur' }
-  ],
-  password: [
-    { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, message: '密码长度至少 6 位', trigger: 'blur' }
-  ],
-  confirmPassword: [
-    { required: true, message: '请确认密码', trigger: 'blur' },
-    { validator: validateConfirmPassword, trigger: 'blur' }
-  ],
-  role: [
-    { required: true, message: '请选择角色', trigger: 'change' }
-  ]
-}))
-
-// 提交表单
 const handleSubmit = async () => {
-  const valid = await formRef.value?.validate()
-  if (!valid) return
+  if (!validate()) return
 
   loading.value = true
   try {
@@ -123,60 +61,271 @@ const handleSubmit = async () => {
       role: formData.role,
       is_active: formData.is_active
     })
-    ElMessage.success('创建成功')
+    alert('创建成功')
     router.push('/users')
   } catch (e: any) {
-    // 解析后端返回的详细错误信息
     let errorMsg = '创建失败'
     if (e.response?.data?.detail) {
       const detail = e.response.data.detail
       if (typeof detail === 'string') {
         errorMsg = detail
       } else if (Array.isArray(detail)) {
-        // Pydantic 验证错误数组
-        errorMsg = detail.map((err: any) => {
-          const field = err.loc?.join('.') || '输入'
-          const msg = err.msg || '验证失败'
-          return `${field}: ${msg}`
-        }).join('; ')
+        errorMsg = detail.map((err: any) => `${err.loc?.join('.')}: ${err.msg}`).join('; ')
       }
     }
-    ElMessage.error(errorMsg)
+    alert(errorMsg)
   } finally {
     loading.value = false
   }
 }
-
-// 重置表单
-const handleReset = () => {
-  formRef.value?.resetFields()
-  formData.username = ''
-  formData.password = ''
-  formData.confirmPassword = ''
-  formData.role = 'annotator'
-  formData.is_active = true
-}
 </script>
 
-<style scoped lang="scss">
-.user-create {
+<template>
+  <div class="page">
+    <!-- 顶部 Header -->
+    <div class="page-header-bar">
+      <div class="header-info">
+        <h1 class="header-title">创建用户</h1>
+        <span class="header-subtitle">添加新的平台用户</span>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-secondary" @click="router.push('/users')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="19" y1="12" x2="5" y2="12"/>
+            <polyline points="12 19 5 12 12 5"/>
+          </svg>
+          返回
+        </button>
+        <button class="btn btn-primary" :disabled="loading" @click="handleSubmit">
+          <svg v-if="!loading" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+          创建用户
+        </button>
+      </div>
+    </div>
+
+    <!-- 主体内容 -->
+    <div class="page-body">
+      <div class="form-card">
+        <h3 class="form-title">用户信息</h3>
+        <form class="form">
+          <div class="form-group">
+            <label class="form-label required">用户名</label>
+            <input
+              v-model="formData.username"
+              type="text"
+              class="form-input"
+              :class="{ 'form-input-error': errors.username }"
+              placeholder="请输入用户名（3-20 个字符）"
+              maxlength="20"
+            />
+            <span v-if="errors.username" class="form-error">{{ errors.username }}</span>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label required">密码</label>
+            <input
+              v-model="formData.password"
+              type="password"
+              class="form-input"
+              :class="{ 'form-input-error': errors.password }"
+              placeholder="请输入密码（至少 6 位）"
+            />
+            <span v-if="errors.password" class="form-error">{{ errors.password }}</span>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label required">确认密码</label>
+            <input
+              v-model="formData.confirmPassword"
+              type="password"
+              class="form-input"
+              :class="{ 'form-input-error': errors.confirmPassword }"
+              placeholder="请再次输入密码"
+            />
+            <span v-if="errors.confirmPassword" class="form-error">{{ errors.confirmPassword }}</span>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label required">角色</label>
+            <div class="radio-group">
+              <label class="radio">
+                <input type="radio" v-model="formData.role" value="annotator" />
+                <span class="radio-label">标注员</span>
+              </label>
+              <label class="radio">
+                <input type="radio" v-model="formData.role" value="admin" />
+                <span class="radio-label">管理员</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">启用状态</label>
+            <div class="switch-group">
+              <label class="switch">
+                <input type="checkbox" v-model="formData.is_active" />
+                <span class="switch-track">
+                  <span class="switch-thumb"></span>
+                </span>
+              </label>
+              <span class="switch-label">{{ formData.is_active ? '启用' : '禁用' }}</span>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.page-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  background: white;
+  border-bottom: 1px solid #E5E7EB;
+}
+
+.header-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.header-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0;
+}
+
+.header-subtitle {
+  font-size: 14px;
+  color: #9CA3AF;
+}
+
+.header-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.page-body {
+  flex: 1;
   padding: 24px;
+  overflow: auto;
+}
 
-  .form-card {
-    max-width: 600px;
-    margin: 0 auto;
+.form-card {
+  max-width: 480px;
+  margin: 0 auto;
+  background: white;
+  border: 1px solid #E5E7EB;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
 
-    .card-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+.form-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+  margin-bottom: 20px;
+}
 
-      h2 {
-        margin: 0;
-        font-size: 18px;
-        font-weight: 600;
-      }
-    }
-  }
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.form-label.required::after {
+  content: ' *';
+  color: #EF4444;
+}
+
+.form-error {
+  font-size: 12px;
+  color: #EF4444;
+  margin-top: 4px;
+}
+
+.form-input-error {
+  border-color: #EF4444;
+}
+
+.radio-group {
+  display: flex;
+  gap: 20px;
+}
+
+.radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.radio input {
+  width: 18px;
+  height: 18px;
+  accent-color: #165DFF;
+}
+
+.switch-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.switch {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.switch input {
+  display: none;
+}
+
+.switch-track {
+  width: 44px;
+  height: 24px;
+  background: #E5E7EB;
+  border-radius: 12px;
+  position: relative;
+  transition: background-color 0.2s ease;
+}
+
+.switch input:checked + .switch-track {
+  background: #165DFF;
+}
+
+.switch-thumb {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  background: white;
+  border-radius: 10px;
+  top: 2px;
+  left: 2px;
+  transition: transform 0.2s ease;
+}
+
+.switch input:checked + .switch-track .switch-thumb {
+  transform: translateX(20px);
+}
+
+.switch-label {
+  font-size: 14px;
+  color: #111827;
 }
 </style>

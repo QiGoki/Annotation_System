@@ -16,11 +16,7 @@ const routes: RouteRecordRaw[] = [
     path: '/',
     name: 'Layout',
     component: () => import('@/views/Layout.vue'),
-    redirect: () => {
-      const userStore = useUserStore()
-      // 标注员直接跳转到任务列表，管理员跳转到项目管理
-      return userStore.user?.role === 'admin' ? '/projects' : '/tasks'
-    },
+    redirect: '/tasks',  // 默认重定向到任务列表，在路由守卫中根据角色调整
     meta: { requiresAuth: true },
     children: [
       {
@@ -71,28 +67,14 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/projects/:id/preview',
     name: 'AnnotationPreview',
-    component: () => import('@/views/annotation/AnnotationLayout.vue'),
+    component: () => import('@/views/annotation/AnnotationRunner.vue'),
     meta: { title: '标注页面预览', requiresAdmin: true },
-    children: [
-      {
-        path: '',
-        name: 'AnnotationPreviewInner',
-        component: () => import('@/views/annotation/AnnotationRunner.vue')
-      }
-    ]
   },
   {
     path: '/annotate/:id',
     name: 'Annotation',
-    component: () => import('@/views/annotation/AnnotationLayout.vue'),
+    component: () => import('@/views/annotation/AnnotationRunner.vue'),
     meta: { title: '标注执行' },
-    children: [
-      {
-        path: '',
-        name: 'AnnotationInner',
-        component: () => import('@/views/annotation/AnnotationRunner.vue')
-      }
-    ]
   },
 ]
 
@@ -118,13 +100,22 @@ router.beforeEach((to, _from, next) => {
 
   // 需要管理员权限的路由
   if (to.meta.requiresAdmin && userStore.user?.role !== 'admin') {
-    next({ name: 'Projects' })
+    next({ name: 'Tasks' })  // 非管理员重定向到任务列表
     return
   }
 
   // 已登录用户访问登录页，重定向到首页
   if (to.name === 'Login' && userStore.token) {
-    next({ name: 'Projects' })
+    // 根据角色重定向
+    const redirectPath = userStore.user?.role === 'admin' ? '/projects' : '/tasks'
+    next(redirectPath)
+    return
+  }
+
+  // 访问根路径时，根据角色重定向
+  if (to.path === '/' && userStore.token) {
+    const redirectPath = userStore.user?.role === 'admin' ? '/projects' : '/tasks'
+    next(redirectPath)
     return
   }
 

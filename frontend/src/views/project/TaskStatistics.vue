@@ -1,146 +1,8 @@
-<template>
-  <div class="task-statistics" v-loading="loading">
-    <el-container>
-      <el-header>
-        <h2>任务统计</h2>
-        <el-button @click="$router.push('/projects')">返回项目列表</el-button>
-      </el-header>
-
-      <el-main>
-        <!-- 项目选择 -->
-        <el-card class="filter-card">
-          <el-form :inline="true">
-            <el-form-item label="选择项目">
-              <el-select
-                v-model="selectedProjectId"
-                placeholder="请选择项目"
-                @change="loadStatistics"
-                style="width: 300px"
-              >
-                <el-option
-                  v-for="project in projects"
-                  :key="project.id"
-                  :label="project.name"
-                  :value="project.id"
-                />
-              </el-select>
-            </el-form-item>
-          </el-form>
-        </el-card>
-
-        <!-- 总览卡片 -->
-        <el-row :gutter="20" class="overview-cards">
-          <el-col :span="6">
-            <el-card shadow="hover">
-              <div class="stat-card">
-                <div class="stat-icon" style="background: #409eff">
-                  <el-icon><Document /></el-icon>
-                </div>
-                <div class="stat-info">
-                  <div class="stat-value">{{ stats.totalTasks }}</div>
-                  <div class="stat-label">总任务数</div>
-                </div>
-              </div>
-            </el-card>
-          </el-col>
-
-          <el-col :span="6">
-            <el-card shadow="hover">
-              <div class="stat-card">
-                <div class="stat-icon" style="background: #909399">
-                  <el-icon><Clock /></el-icon>
-                </div>
-                <div class="stat-info">
-                  <div class="stat-value">{{ stats.pendingTasks }}</div>
-                  <div class="stat-label">待标注</div>
-                </div>
-              </div>
-            </el-card>
-          </el-col>
-
-          <el-col :span="6">
-            <el-card shadow="hover">
-              <div class="stat-card">
-                <div class="stat-icon" style="background: #e6a23c">
-                  <el-icon><Edit /></el-icon>
-                </div>
-                <div class="stat-info">
-                  <div class="stat-value">{{ stats.doingTasks }}</div>
-                  <div class="stat-label">标注中</div>
-                </div>
-              </div>
-            </el-card>
-          </el-col>
-
-          <el-col :span="6">
-            <el-card shadow="hover">
-              <div class="stat-card">
-                <div class="stat-icon" style="background: #67c23a">
-                  <el-icon><Select /></el-icon>
-                </div>
-                <div class="stat-info">
-                  <div class="stat-value">{{ stats.completedTasks }}</div>
-                  <div class="stat-label">已完成</div>
-                </div>
-              </div>
-            </el-card>
-          </el-col>
-        </el-row>
-
-        <!-- 统计图表 -->
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-card>
-              <template #header>
-                <span>任务状态分布</span>
-              </template>
-              <div class="chart-container">
-                <div ref="pieChartRef" class="pie-chart"></div>
-              </div>
-            </el-card>
-          </el-col>
-
-          <el-col :span="12">
-            <el-card>
-              <template #header>
-                <span>标注人员工作量</span>
-              </template>
-              <div class="chart-container">
-                <div ref="barChartRef" class="bar-chart"></div>
-              </div>
-            </el-card>
-          </el-col>
-        </el-row>
-
-        <!-- 用户统计表格 -->
-        <el-card>
-          <template #header>
-            <span>标注人员统计</span>
-          </template>
-          <el-table :data="userStats" stripe>
-            <el-table-column prop="username" label="用户名" />
-            <el-table-column prop="role" label="角色" />
-            <el-table-column prop="assignedCount" label="分配任务数" sortable />
-            <el-table-column prop="completedCount" label="完成数" sortable />
-            <el-table-column prop="pendingCount" label="待完成" sortable />
-            <el-table-column label="完成率">
-              <template #default="{ row }">
-                <el-progress
-                  :percentage="row.completionRate"
-                  :color="getProgressColor(row.completionRate)"
-                />
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-      </el-main>
-    </el-container>
-  </div>
-</template>
-
 <script setup lang="ts">
+/**
+ * 任务统计页面 - StepFun风格
+ */
 import { ref, reactive, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
 import { getProjectList } from '@/api/project'
 import { getTaskList } from '@/api/task'
 import type { Project } from '@/types/project'
@@ -166,37 +28,31 @@ const userStats = ref<Array<{
   completionRate: number
 }>>([])
 
-// 加载项目列表
 const loadProjects = async () => {
   try {
-    const res = await getProjectList()
-    projects.value = res
-    if (res.length > 0) {
-      selectedProjectId.value = res[0].id
+    projects.value = await getProjectList()
+    if (projects.value.length > 0) {
+      selectedProjectId.value = projects.value[0].id
       loadStatistics()
     }
-  } catch (e: any) {
-    ElMessage.error('加载项目列表失败')
+  } catch (e) {
+    alert('加载项目列表失败')
   }
 }
 
-// 加载统计数据
 const loadStatistics = async () => {
   if (!selectedProjectId.value) return
 
   loading.value = true
   try {
-    // 获取所有任务
     const res = await getTaskList({ project_id: selectedProjectId.value, page: 1, page_size: 1000 })
     const tasks: Task[] = Array.isArray(res) ? res : (res as any).data || []
 
-    // 计算统计
     stats.totalTasks = tasks.length
     stats.pendingTasks = tasks.filter(t => t.status === 'pending').length
     stats.doingTasks = tasks.filter(t => t.status === 'doing').length
     stats.completedTasks = tasks.filter(t => t.status === 'completed').length
 
-    // 用户统计
     const userTaskMap = new Map<string, {
       username: string
       role: string
@@ -233,28 +89,17 @@ const loadStatistics = async () => {
       pendingCount: u.pending,
       completionRate: u.assigned > 0 ? Math.round((u.completed / u.assigned) * 100) : 0
     }))
-
-    // 更新图表（如果有 ECharts）
-    updateCharts()
-  } catch (e: any) {
-    ElMessage.error('加载统计数据失败')
+  } catch (e) {
+    alert('加载统计数据失败')
   } finally {
     loading.value = false
   }
 }
 
-// 更新图表
-const updateCharts = () => {
-  // 这里可以集成 ECharts
-  // 简化版本：仅显示数据
-  console.log('更新图表', stats)
-}
-
-// 获取进度条颜色
 const getProgressColor = (percentage: number) => {
-  if (percentage >= 80) return '#67c23a'
-  if (percentage >= 50) return '#e6a23c'
-  return '#f56c6c'
+  if (percentage >= 80) return '#10B981'
+  if (percentage >= 50) return '#F59E0B'
+  return '#EF4444'
 }
 
 onMounted(() => {
@@ -262,75 +107,235 @@ onMounted(() => {
 })
 </script>
 
-<style scoped lang="scss">
-.task-statistics {
-  min-height: 100vh;
-  background: #f5f7fa;
+<template>
+  <div class="page">
+    <!-- 页面头部 -->
+    <div class="page-header">
+      <h1 class="page-title">任务统计</h1>
+      <button class="btn btn-secondary" @click="$router.push('/projects')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="19" y1="12" x2="5" y2="12"/>
+          <polyline points="12 19 5 12 12 5"/>
+        </svg>
+        返回
+      </button>
+    </div>
 
-  .el-header {
-    background: #fff;
-    border-bottom: 1px solid #e4e7ed;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 24px;
+    <!-- 项目选择 -->
+    <div class="card">
+      <div class="filter-row">
+        <label class="filter-label">选择项目</label>
+        <select v-model="selectedProjectId" class="form-input filter-select" @change="loadStatistics">
+          <option v-for="project in projects" :key="project.id" :value="project.id">
+            {{ project.name }}
+          </option>
+        </select>
+      </div>
+    </div>
 
-    h2 {
-      margin: 0;
-      font-size: 20px;
-      font-weight: 600;
-    }
-  }
+    <!-- 统计卡片 -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-value">{{ stats.totalTasks }}</div>
+        <div class="stat-label">总任务数</div>
+      </div>
+      <div class="stat-card stat-pending">
+        <div class="stat-value">{{ stats.pendingTasks }}</div>
+        <div class="stat-label">待领取</div>
+      </div>
+      <div class="stat-card stat-doing">
+        <div class="stat-value">{{ stats.doingTasks }}</div>
+        <div class="stat-label">标注中</div>
+      </div>
+      <div class="stat-card stat-completed">
+        <div class="stat-value">{{ stats.completedTasks }}</div>
+        <div class="stat-label">已完成</div>
+      </div>
+    </div>
 
-  .el-main {
-    padding: 20px;
-  }
+    <!-- 用户统计表格 -->
+    <h3 class="section-title">标注人员统计</h3>
+    <div class="card table-card">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>用户名</th>
+            <th>角色</th>
+            <th>分配任务数</th>
+            <th>完成数</th>
+            <th>待完成</th>
+            <th>完成率</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="user in userStats" :key="user.username">
+            <td class="font-medium">{{ user.username }}</td>
+            <td><span class="tag tag-primary">{{ user.role }}</span></td>
+            <td>{{ user.assignedCount }}</td>
+            <td>{{ user.completedCount }}</td>
+            <td>{{ user.pendingCount }}</td>
+            <td>
+              <div class="progress-cell">
+                <div class="progress-bar">
+                  <div
+                    class="progress-fill"
+                    :style="{
+                      width: user.completionRate + '%',
+                      backgroundColor: getProgressColor(user.completionRate)
+                    }"
+                  />
+                </div>
+                <span class="progress-text">{{ user.completionRate }}%</span>
+              </div>
+            </td>
+          </tr>
+          <tr v-if="userStats.length === 0">
+            <td colspan="6" class="empty">暂无数据</td>
+          </tr>
+        </tbody>
+      </table>
 
-  .filter-card {
-    margin-bottom: 20px;
-  }
+      <div v-if="loading" class="loading-overlay">
+        <div class="loading-spinner"></div>
+      </div>
+    </div>
+  </div>
+</template>
 
-  .overview-cards {
-    margin-bottom: 20px;
+<style scoped>
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
 
-    .stat-card {
-      display: flex;
-      align-items: center;
-      gap: 16px;
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
 
-      .stat-icon {
-        width: 60px;
-        height: 60px;
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: #fff;
-        font-size: 28px;
-      }
+.page-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0;
+}
 
-      .stat-info {
-        .stat-value {
-          font-size: 28px;
-          font-weight: 600;
-          color: #303133;
-        }
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 
-        .stat-label {
-          font-size: 14px;
-          color: #909399;
-          margin-top: 4px;
-        }
-      }
-    }
-  }
+.filter-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #111827;
+}
 
-  .chart-container {
-    height: 300px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #909399;
-  }
+.filter-select {
+  width: 300px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.stat-card {
+  background: white;
+  border: 1px solid #E5E7EB;
+  border-radius: 12px;
+  padding: 20px;
+  text-align: center;
+}
+
+.stat-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 4px;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #9CA3AF;
+}
+
+.stat-pending {
+  background: #DBEAFE;
+}
+
+.stat-pending .stat-value,
+.stat-pending .stat-label {
+  color: #3B82F6;
+}
+
+.stat-doing {
+  background: #FEF3C7;
+}
+
+.stat-doing .stat-value,
+.stat-doing .stat-label {
+  color: #F59E0B;
+}
+
+.stat-completed {
+  background: #D1FAE5;
+}
+
+.stat-completed .stat-value,
+.stat-completed .stat-label {
+  color: #10B981;
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0;
+}
+
+.table-card {
+  position: relative;
+  padding: 0;
+  overflow: hidden;
+}
+
+.font-medium {
+  font-weight: 500;
+  color: #111827;
+}
+
+.progress-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.progress-bar {
+  width: 100px;
+  height: 6px;
+  background: #F3F4F6;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 3px;
+}
+
+.progress-text {
+  font-size: 12px;
+  color: #6B7280;
+}
+
+.empty {
+  text-align: center;
+  color: #9CA3AF;
+  padding: 40px 16px;
 }
 </style>

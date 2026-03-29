@@ -34,6 +34,48 @@ class ProjectMemberUpdate(BaseModel):
     role: str
 
 
+# 注意：/my-projects 必须在 /{project_id}/members 之前定义
+# 否则 "my-projects" 会被当作 project_id 参数匹配
+@router.get("/my-projects", response_model=List[dict])
+def get_my_projects(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取我参与的项目列表"""
+    projects = ProjectMemberService.get_user_projects(db, current_user.id)
+
+    # 也包含创建的项目
+    created_projects = db.query(Project).filter(
+        Project.created_by == current_user.id,
+        Project.is_deleted == False
+    ).all()
+
+    # 合并去重
+    all_project_ids = set([p.id for p in projects] + [p.id for p in created_projects])
+    all_projects = db.query(Project).filter(Project.id.in_(all_project_ids)).all()
+
+    result = []
+    for proj in all_projects:
+        # 统计任务数
+        from app.models.task import Task
+        total_tasks = db.query(Task).filter(Task.project_id == proj.id).count()
+        pending_tasks = db.query(Task).filter(
+            Task.project_id == proj.id,
+            Task.status == "pending"
+        ).count()
+
+        result.append({
+            "id": proj.id,
+            "name": proj.name,
+            "description": proj.description,
+            "total_tasks": total_tasks,
+            "pending_tasks": pending_tasks,
+            "role": "owner" if proj.created_by == current_user.id else "member"
+        })
+
+    return result
+
+
 @router.get("/{project_id}/members", response_model=List[MemberResponse])
 def get_project_members(
     project_id: int,
@@ -139,43 +181,3 @@ def update_member_role(
         return {"message": "更新角色成功"}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-
-@router.get("/my-projects", response_model=List[dict])
-def get_my_projects(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """获取我参与的项目列表"""
-    projects = ProjectMemberService.get_user_projects(db, current_user.id)
-
-    # 也包含创建的项目
-    created_projects = db.query(Project).filter(
-        Project.created_by == current_user.id,
-        Project.is_deleted == False
-    ).all()
-
-    # 合并去重
-    all_project_ids = set([p.id for p in projects] + [p.id for p in created_projects])
-    all_projects = db.query(Project).filter(Project.id.in_(all_project_ids)).all()
-
-    result = []
-    for proj in all_projects:
-        # 统计任务数
-        from app.models.task import Task
-        total_tasks = db.query(Task).filter(Task.project_id == proj.id).count()
-        pending_tasks = db.query(Task).filter(
-            Task.project_id == proj.id,
-            Task.status == "pending"
-        ).count()
-
-        result.append({
-            "id": proj.id,
-            "name": proj.name,
-            "description": proj.description,
-            "total_tasks": total_tasks,
-            "pending_tasks": pending_tasks,
-            "role": "owner" if proj.created_by == current_user.id else "member"
-        })
-
-    return result

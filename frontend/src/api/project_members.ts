@@ -54,17 +54,3 @@ export function removeProjectMember(projectId: number, userId: number) {
 export function updateMemberRole(projectId: number, userId: number, role: string) {
   return request.put(`/project-members/${projectId}/members/${userId}/role`, null, { params: { role } })
 }
-
-/**
- * 领取任务
- */
-export function claimTask(taskId: number) {
-  return request.post(`/tasks/${taskId}/claim`)
-}
-
-/**
- * 释放任务
- */
-export function releaseTask(taskId: number) {
-  return request.post(`/tasks/${taskId}/release`)
-}

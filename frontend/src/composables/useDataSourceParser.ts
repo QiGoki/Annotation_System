@@ -1,10 +1,9 @@
 /**
  * 数据源解析工具
  *
- * 实现设计文档中的流程：
+ * 用于：
  * 1. 上传示例 JSON → 自动提取字段
- * 2. fieldMapping 预推荐 → 用户确认/调整
- * 3. 保存配置 → 运行时解析
+ * 2. JSONPath 解析
  */
 import type { ParsedField, CustomFieldRule } from '@/types/annotation-module'
 
@@ -14,7 +13,7 @@ import type { ParsedField, CustomFieldRule } from '@/types/annotation-module'
  * 规则：
  * - 字段值 = 列表：
  *   - 列表中没有对象 → 保留该字段
- *   - 列表中有对象 → 展开对象，不保留原字段
+ *   - 列表中有对象 → 保留数组路径 + 展开第一个对象供参考
  * - 字段值 = 对象 → 继续递归展开
  * - 字段值 = 基本类型 → 直接保留
  */
@@ -31,13 +30,23 @@ export function extractFields(data: any, prefix = ''): ParsedField[] {
       const hasObject = val.some(item => typeof item === 'object' && item !== null)
 
       if (hasObject) {
-        // 数组中有对象 → 展开，不保留原字段
-        val.forEach((item, index) => {
-          if (typeof item === 'object' && item !== null) {
-            // 递归提取对象的字段，使用 [index] 表示路径
-            fields.push(...extractFields(item, `${fullPath}[${index}]`))
-          }
+        // 数组中有对象 → 保留数组路径本身
+        const firstObject = val.find(item => typeof item === 'object' && item !== null)
+        fields.push({
+          path: fullPath,
+          type: 'array',
+          length: val.length,
+          preview: firstObject ? `包含 ${Object.keys(firstObject).join(', ')} 等字段` : undefined
         })
+
+        // 同时展开第一个对象供参考（缩进显示）
+        if (firstObject) {
+          const subFields = extractFields(firstObject, `${fullPath}[0]`)
+          fields.push(...subFields.map(f => ({
+            ...f,
+            preview: `└─ ${f.preview || f.type}`  // 添加缩进标记表示是子字段
+          })))
+        }
       } else {
         // 数组中没有对象 → 保留该字段
         fields.push({
@@ -64,64 +73,6 @@ export function extractFields(data: any, prefix = ''): ParsedField[] {
 }
 
 /**
- * 通过值反推 JSONPath
- */
-export function findPathByValue(data: any, targetValue: any, currentPath = ''): string | null {
-  for (const [key, val] of Object.entries(data)) {
-    const newPath = currentPath ? `${currentPath}.${key}` : key
-
-    if (val === targetValue) {
-      return newPath
-    }
-
-    if (Array.isArray(val)) {
-      for (let i = 0; i < val.length; i++) {
-        if (val[i] === targetValue) {
-          return `${newPath}[${i}]`
-        }
-        if (typeof val[i] === 'object' && val[i] !== null) {
-          const found = findPathByValue(val[i], targetValue, `${newPath}[${i}]`)
-          if (found) return found
-        }
-      }
-    }
-
-    if (typeof val === 'object' && val !== null) {
-      const found = findPathByValue(val, targetValue, newPath)
-      if (found) return found
-    }
-  }
-
-  return null
-}
-
-/**
- * 智能绑定：调用 fieldMapping 函数，返回字段绑定
- *
- * @param moduleDef 模块定义
- * @param exampleData 示例数据
- * @returns 字段绑定映射 { fieldName: jsonPath }
- */
-export function smartBind(moduleDef: any, exampleData: any): Record<string, string> {
-  const bindings: Record<string, string> = {}
-
-  if (!moduleDef?.fieldMapping || !exampleData) return bindings
-
-  for (const [fieldName, mappingFn] of Object.entries(moduleDef.fieldMapping)) {
-    const mappedValue = (mappingFn as Function)(exampleData)
-
-    if (mappedValue !== undefined && mappedValue !== null) {
-      const path = findPathByValue(exampleData, mappedValue)
-      if (path) {
-        bindings[fieldName] = path
-      }
-    }
-  }
-
-  return bindings
-}
-
-/**
  * 根据 JSONPath 解析数据
  *
  * 支持路径格式：
@@ -142,23 +93,6 @@ export function resolveFieldBinding(data: any, bindingPath: string): any {
       result = result[seg]
     }
     if (result === undefined || result === null) return undefined
-  }
-
-  return result
-}
-
-/**
- * 批量解析模块数据
- *
- * @param fieldBindings 字段绑定配置 { fieldName: jsonPath }
- * @param jsonlRow 原始数据
- * @returns 解析后的数据 { fieldName: value }
- */
-export function resolveModuleData(fieldBindings: Record<string, string>, jsonlRow: any): Record<string, any> {
-  const result: Record<string, any> = {}
-
-  for (const [fieldName, bindingPath] of Object.entries(fieldBindings)) {
-    result[fieldName] = resolveFieldBinding(jsonlRow, bindingPath)
   }
 
   return result

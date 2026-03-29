@@ -73,7 +73,7 @@ const handleSubmit = () => {
         <div class="stat-label">总数</div>
       </div>
       <div class="stat">
-        <div class="stat-value" style="color: var(--bili-pink, #fb7299)">{{ stats.completed }}</div>
+        <div class="stat-value" style="color: #10B981">{{ stats.completed }}</div>
         <div class="stat-label">已完成</div>
       </div>
       <div class="stat">
@@ -148,9 +148,9 @@ const handleSubmit = () => {
 .annotation-sidebar {
   width: 240px;
   flex-shrink: 0;
-  background: var(--bili-card-bg, #ffffff);
-  border-radius: 10px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  background: #FFFFFF;
+  border: 1px solid #E5E7EB;
+  border-radius: 12px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -171,19 +171,20 @@ const handleSubmit = () => {
 }
 
 .sidebar-header {
-  padding: 15px;
-  border-bottom: 1px solid var(--bili-border, #e3e5e7);
+  padding: 16px;
+  border-bottom: 1px solid #E5E7EB;
   display: flex;
   justify-content: space-between;
   align-items: center;
 
   h1 {
-    color: var(--bili-pink, #fb7299);
+    color: #165DFF;
     font-size: 16px;
     margin: 0;
     display: flex;
     align-items: center;
     gap: 8px;
+    font-weight: 600;
   }
 }
 
@@ -192,17 +193,17 @@ const handleSubmit = () => {
   border: none;
   cursor: pointer;
   padding: 4px;
-  color: var(--bili-text-secondary, #9499a0);
+  color: #9CA3AF;
   font-size: 16px;
 
   &:hover {
-    color: var(--bili-pink, #fb7299);
+    color: #165DFF;
   }
 }
 
 .file-stats {
-  padding: 10px 15px;
-  background: var(--bili-bg, #f4f5f7);
+  padding: 8px 16px;
+  background: #F9FAFB;
   font-size: 12px;
   display: flex;
   justify-content: space-around;
@@ -215,43 +216,45 @@ const handleSubmit = () => {
 .stat-value {
   font-weight: 600;
   font-size: 14px;
+  color: #111827;
 }
 
 .stat-label {
-  color: var(--bili-text-secondary, #9499a0);
-  font-size: 11px;
+  color: #9CA3AF;
+  font-size: 12px;
 }
 
 .item-lists {
   flex: 1;
   overflow: auto;
-  padding: 10px 0;
+  padding: 8px 0;
 }
 
 .list-section {
-  border-bottom: 1px solid var(--bili-border, #e3e5e7);
+  border-bottom: 1px solid #E5E7EB;
 }
 
 .list-header {
-  padding: 10px 15px;
+  padding: 8px 16px;
   font-weight: 600;
   font-size: 13px;
   cursor: pointer;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: var(--bili-bg, #f4f5f7);
+  background: #F9FAFB;
+  color: #6B7280;
 
   &:hover {
-    background: var(--bili-border, #e3e5e7);
+    background: #F3F4F6;
   }
 
   .count {
-    background: var(--bili-pink, #fb7299);
+    background: #165DFF;
     color: white;
     padding: 2px 8px;
-    border-radius: 10px;
-    font-size: 11px;
+    border-radius: 6px;
+    font-size: 12px;
   }
 }
 
@@ -260,40 +263,41 @@ const handleSubmit = () => {
 }
 
 .list-item {
-  padding: 8px 15px;
-  font-size: 12px;
+  padding: 8px 16px;
+  font-size: 13px;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 6px;
-  transition: background 0.15s;
+  gap: 4px;
+  transition: background 0.15s ease;
+  color: #6B7280;
 
   &:hover {
-    background: var(--bili-bg, #f4f5f7);
+    background: #F9FAFB;
   }
 
   &.active {
-    background: rgba(251, 114, 153, 0.1);
-    border-left: 3px solid var(--bili-pink, #fb7299);
+    background: #E8F3FF;
+    border-left: 3px solid #165DFF;
   }
 
   &.saved {
     .index {
-      background: rgba(251, 114, 153, 0.2);
-      color: var(--bili-pink, #fb7299);
+      background: #D1FAE5;
+      color: #10B981;
     }
 
     .filename {
-      color: var(--bili-text-primary, #212121);
+      color: #111827;
     }
   }
 }
 
 .index {
-  background: var(--bili-border, #e3e5e7);
+  background: #F3F4F6;
   padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 11px;
+  border-radius: 6px;
+  font-size: 12px;
   flex-shrink: 0;
 }
 
@@ -302,31 +306,28 @@ const handleSubmit = () => {
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
-  color: var(--bili-text-secondary, #9499a0);
 }
 
 .sidebar-footer {
-  padding: 15px;
-  border-top: 1px solid var(--bili-border, #e3e5e7);
-  background: var(--bili-bg, #f4f5f7);
+  padding: 16px;
+  border-top: 1px solid #E5E7EB;
+  background: #F9FAFB;
 }
 
 .submit-btn {
   width: 100%;
   padding: 10px 16px;
-  background: linear-gradient(135deg, var(--bili-pink, #fb7299) 0%, #ff9eb5 100%);
+  background: #165DFF;
   color: white;
   border: none;
   border-radius: 8px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
-  box-shadow: 0 2px 8px rgba(251, 114, 153, 0.3);
+  transition: all 0.2s ease;
 
   &:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(251, 114, 153, 0.4);
+    background: #0E42D2;
   }
 
   &:active {
@@ -334,9 +335,10 @@ const handleSubmit = () => {
   }
 
   &:disabled {
-    background: var(--bili-border, #e3e5e7);
-    box-shadow: none;
+    background: #E5E7EB;
+    color: #9CA3AF;
     cursor: not-allowed;
+    transform: none;
   }
 }
 
@@ -345,21 +347,21 @@ const handleSubmit = () => {
   left: 10px;
   top: 50%;
   transform: translateY(-50%);
-  background: var(--bili-card-bg, #ffffff);
-  border: 1px solid var(--bili-border, #e3e5e7);
-  border-radius: 6px;
+  background: #FFFFFF;
+  border: 1px solid #E5E7EB;
+  border-radius: 8px;
   padding: 12px 8px;
   cursor: pointer;
-  color: var(--bili-pink, #fb7299);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  color: #165DFF;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   font-size: 16px;
   z-index: 100;
-  transition: all 0.2s;
+  transition: all 0.15s ease;
 
   &:hover {
-    background: var(--bili-pink, #fb7299);
+    background: #165DFF;
     color: white;
-    border-color: var(--bili-pink, #fb7299);
+    border-color: #165DFF;
   }
 }
 </style>

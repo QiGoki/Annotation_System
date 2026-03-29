@@ -1,61 +1,56 @@
 <script setup lang="ts">
 /**
- * 标注执行页面 - 模块化版本
- * 集成侧边栏、三列布局、标注工具
+ * 标注执行页面 v4 - StepFun风格
+ *
+ * 使用 AnnotationContext 共享状态，支持多种组件类型
  */
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, provide } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import AnnotationSidebar from '@/components/annotation/AnnotationSidebar.vue'
 import LayoutContainer from '@/components/annotation/LayoutContainer.vue'
+import ImageBBoxAnnotator from '@/components/annotation/ImageBBoxAnnotator.vue'
+import TextViewer from '@/components/annotation/TextViewer.vue'
+import RadioSelector from '@/components/annotation/RadioSelector.vue'
+import TextInput from '@/components/annotation/TextInput.vue'
 import { useAnnotationSidebar } from '@/composables/useAnnotationSidebar'
+import { createAnnotationContext } from '@/composables/useAnnotationContext'
 import { getModuleById } from '@/composables/useAnnotationModuleRegistry'
 import { getTaskDetail, saveAnnotation } from '@/api/task'
-import { getAnnotationPageConfig } from '@/api/project'
-import type { LayoutConfig } from '@/types/annotation-tool'
-import type { ComponentNode, BboxData } from '@/types/annotation-tool'
+import { getAnnotationPageConfig, saveAnnotationPageConfig } from '@/api/project'
+import type { LayoutConfig, PanelConfig } from '@/types/annotation-tool'
 import type { PageConfig, ModuleInstance } from '@/types/annotation-module'
 
 const route = useRoute()
 const router = useRouter()
 
-// 检查是否是预览模式（用于条件判断）
 const isPreviewModeFlag = ref(route.path.includes('/preview'))
 
-// 根据路由类型获取正确的 ID
-// 预览模式：/projects/:id/preview → id 是 projectId
-// 标注模式：/annotate/:id → id 是 taskId
 const taskId = computed(() => {
-  if (isPreviewModeFlag.value) return 0 // 预览模式不需要 taskId
+  if (isPreviewModeFlag.value) return 0
   return Number(route.params.id)
 })
 
 const projectId = computed(() => {
   if (isPreviewModeFlag.value) {
-    // 预览模式：从路由参数获取 projectId
     return Number(route.params.id)
   }
-  // 标注模式：从 task 数据中获取 projectId
   return task.value?.project_id || 0
 })
 
-// 任务数据
 const task = ref<any>(null)
 const taskData = ref<any[]>([])
 const loading = ref(false)
 const isSaving = ref(false)
 
-// 预览配置（用于预览模式）
 const _previewConfig = ref<PageConfig | null>(null)
 const _previewData = ref<any>(null)
+const _pageConfig = ref<PageConfig | null>(null)  // 存储页面配置（用于任务模式）
 
-// 标注状态
-const selectedBboxPath = ref<number[] | null>(null)
-const selectedComponentPath = ref<number[] | null>(null)
-const showAllBboxes = ref(false)
 const sidebarCollapsed = ref(false)
 
-// 使用侧边栏 composable
+// 创建 AnnotationContext（用于 ImageBBoxAnnotator）
+const annotationContext = createAnnotationContext()
+
 const {
   currentIndex,
   stats,
@@ -66,38 +61,88 @@ const {
   reset
 } = useAnnotationSidebar(taskData.value)
 
-// 布局配置 - 将从配置加载
 const layout = ref<LayoutConfig>({
   left: { panels: [] },
   center: { panels: [] },
   right: { panels: [] }
 })
 
-// 当前组件数据
-const currentComponents = ref<ComponentNode[]>([])
-const currentBboxes = ref<BboxData[]>([])
+// 每列是否平铺满画布（从配置读取）
+const fillColumn = ref({
+  left: false,
+  center: false
+})
 
-// 从模块配置生成布局
-const buildLayoutFromConfig = (modules: ModuleInstance[]) => {
-  const leftPanels: any[] = []
-  const centerPanels: any[] = []
+// 左列宽度
+const leftColumnWidth = ref(350)
+
+// 布局容器引用
+const layoutContainerRef = ref<InstanceType<typeof LayoutContainer> | null>(null)
+
+// 当前选中的面板 ID
+const selectedPanelId = ref<string | null>(null)
+
+// 根据 module.type 返回对应的组件
+const getComponentForModule = (moduleType: string) => {
+  switch (moduleType) {
+    case 'ImageBBoxAnnotator':
+      return ImageBBoxAnnotator
+    default:
+      return null
+  }
+}
+
+// 构建布局配置
+const buildLayoutFromConfig = (modules: ModuleInstance[], layoutConfig?: any) => {
+  const leftPanels: PanelConfig[] = []
+  const centerPanels: PanelConfig[] = []
+
+  // 读取平铺配置
+  if (layoutConfig?.columns) {
+    const leftCol = layoutConfig.columns.find((c: any) => c.index === 1)
+    const rightCol = layoutConfig.columns.find((c: any) => c.index === 2)
+    fillColumn.value.left = leftCol?.fill ?? false
+    fillColumn.value.center = rightCol?.fill ?? false
+  }
+
+  // 读取左列宽度（预览模式从配置，任务模式从 localStorage）
+  if (isPreviewModeFlag.value) {
+    leftColumnWidth.value = layoutConfig?.leftColumnWidth || 350
+  } else {
+    const savedWidth = localStorage.getItem(`annotation-layout-${projectId.value}`)
+    if (savedWidth) {
+      try {
+        const parsed = JSON.parse(savedWidth)
+        leftColumnWidth.value = parsed.leftColumnWidth || 350
+      } catch (e) {
+        leftColumnWidth.value = 350
+      }
+    }
+  }
+
+  // 存储模块配置以便渲染时获取
+  const moduleConfigs: Record<string, any> = {}
+  modules.forEach(m => {
+    moduleConfigs[m.id] = m.config
+  })
 
   modules.forEach((module) => {
     const moduleDef = getModuleById(module.type)
-    const panel = {
+    const panel: PanelConfig = {
       id: module.id,
-      type: 'tool' as const,
+      type: 'tool',
       toolId: module.type,
-      title: moduleDef?.name || '未知组件',
+      title: module.config?.title || moduleDef?.name || '未知组件',
       collapsible: true,
-      defaultExpanded: true,
-      props: module.props || {}
+      defaultExpanded: true
     }
+
+    // 存储配置到 panel（扩展属性）
+    ;(panel as any).config = module.config
 
     if (module.col === 1) {
       leftPanels.push(panel)
     } else {
-      // col === 2 或默认情况都放到中列
       centerPanels.push(panel)
     }
   })
@@ -113,13 +158,12 @@ const buildLayoutFromConfig = (modules: ModuleInstance[]) => {
 const loadTask = async () => {
   loading.value = true
   try {
-    // 预览模式：从 sessionStorage 加载
     if (isPreviewModeFlag.value) {
-      const configStr = sessionStorage.getItem('annotation-preview-config')
-      const dataStr = sessionStorage.getItem('annotation-preview-data')
+      const configStr = localStorage.getItem('annotation-preview-config')
+      const dataStr = localStorage.getItem('annotation-preview-data')
 
       if (!configStr || !dataStr) {
-        ElMessage.error('预览数据丢失，请重新配置')
+        alert('预览数据丢失，请重新配置')
         router.push(`/projects/${projectId.value}/configure`)
         return
       }
@@ -128,37 +172,30 @@ const loadTask = async () => {
       _previewData.value = JSON.parse(dataStr)
       taskData.value = [_previewData.value]
 
-      // 根据配置生成布局
       if (_previewConfig.value?.modules) {
-        buildLayoutFromConfig(_previewConfig.value.modules)
+        buildLayoutFromConfig(_previewConfig.value.modules, _previewConfig.value.layout)
       }
 
-      // 更新 composable 中的数据引用
       reset()
       loadCurrentItem()
-
-      ElMessage.info('预览模式：使用示例数据')
     } else {
-      // 正常模式：从 API 加载任务和配置
       const result = await getTaskDetail(taskId.value)
       task.value = result
-      taskData.value = result.data || []
+      // data_source 是一个数组，包含多条数据
+      taskData.value = Array.isArray(result.data_source) ? result.data_source : []
 
-      // 尝试加载项目配置
       try {
         const pageConfig = await getAnnotationPageConfig(projectId.value)
+        _pageConfig.value = pageConfig
         if (pageConfig?.modules) {
-          buildLayoutFromConfig(pageConfig.modules)
+          buildLayoutFromConfig(pageConfig.modules, pageConfig.layout)
         }
       } catch (e) {
-        // 如果没有配置，使用默认布局
         console.warn('未找到页面配置，使用默认布局')
       }
 
-      // 更新 composable 中的数据引用
       reset()
 
-      // 加载第一个未完成的项目
       const firstUnsavedIndex = taskData.value.findIndex((item: any) => !item._saved)
       if (firstUnsavedIndex >= 0) {
         currentIndex.value = firstUnsavedIndex
@@ -166,8 +203,8 @@ const loadTask = async () => {
 
       loadCurrentItem()
     }
-  } catch (e: any) {
-    ElMessage.error(isPreviewModeFlag.value ? '加载预览失败' : '加载任务失败')
+  } catch (e) {
+    alert(isPreviewModeFlag.value ? '加载预览失败' : '加载任务失败')
   } finally {
     loading.value = false
   }
@@ -178,36 +215,19 @@ const loadCurrentItem = () => {
   const item = taskData.value[currentIndex.value]
   if (!item) return
 
-  // 加载组件数据
-  currentComponents.value = item.components || []
-  currentBboxes.value = extractBboxes(currentComponents.value)
+  // 设置原始数据到 context
+  annotationContext.setRawData(item)
 
-  // 重置选中状态
-  selectedBboxPath.value = null
-  selectedComponentPath.value = null
-  showAllBboxes.value = false
-}
-
-// 从组件树提取 bbox 数据
-const extractBboxes = (components: ComponentNode[], path: number[] = []): BboxData[] => {
-  const bboxes: BboxData[] = []
-
-  components.forEach((comp, index) => {
-    const currentPath = [...path, index]
-    if (comp.bbox) {
-      bboxes.push({
-        path: currentPath,
-        bbox: comp.bbox,
-        type: comp.type,
-        text: comp.text
-      })
+  // 设置 ImageBBoxAnnotator 的配置到 context（用于 bbox 标注）
+  const pageConfig = isPreviewModeFlag.value ? _previewConfig.value : _pageConfig.value
+  if (pageConfig?.modules) {
+    const imageModule = pageConfig.modules.find(m => m.type === 'ImageBBoxAnnotator')
+    if (imageModule?.config) {
+      annotationContext.setConfig(imageModule.config)
     }
-    if (comp.children && comp.children.length > 0) {
-      bboxes.push(...extractBboxes(comp.children, currentPath))
-    }
-  })
+  }
 
-  return bboxes
+  selectedPanelId.value = null
 }
 
 // 保存标注
@@ -219,59 +239,121 @@ const handleSave = async () => {
     const item = taskData.value[currentIndex.value]
     if (!item) return
 
-    // 保存标注结果
+    // 获取输出数据
+    const outputData = annotationContext.getOutputData()
+
     await saveAnnotation(taskId.value, {
-      ...item,
-      components: currentComponents.value,
-      _index: currentIndex.value
+      result_json: {
+        ...item,
+        annotations: outputData,
+        _index: currentIndex.value
+      }
     })
 
-    // 标记为已保存
     markAsSaved(currentIndex.value)
-    ElMessage.success('保存成功')
-  } catch (e: any) {
-    ElMessage.error('保存失败')
+    alert('保存成功')
+  } catch (e) {
+    alert('保存失败')
   } finally {
     isSaving.value = false
   }
 }
 
-// 提交任务
-const handleSubmit = async () => {
-  try {
-    await ElMessageBox.confirm('确定要提交此任务吗？提交后将无法继续编辑。', '确认提交', {
-      type: 'warning'
-    })
+// 左列宽度变化处理
+const handleLeftColumnWidthChange = (width: number) => {
+  leftColumnWidth.value = width
 
-    // TODO: 调用提交 API
-    ElMessage.success('任务已提交')
-    router.push('/tasks')
-  } catch (e: any) {
-    if (e !== 'cancel') {
-      ElMessage.error('提交失败')
-    }
+  // 任务模式：自动保存到 localStorage
+  if (!isPreviewModeFlag.value) {
+    localStorage.setItem(`annotation-layout-${projectId.value}`, JSON.stringify({
+      leftColumnWidth: width
+    }))
   }
 }
 
-// 快捷键
+// 保存布局（仅预览模式）
+const isSavingLayout = ref(false)
+const handleSaveLayout = async () => {
+  if (isSavingLayout.value) return
+  isSavingLayout.value = true
+
+  try {
+    const pageConfig = _previewConfig.value
+    if (!pageConfig) {
+      alert('配置不存在')
+      return
+    }
+
+    // 确保 modules 格式正确
+    const modules = pageConfig.modules || []
+
+    const config: PageConfig = {
+      modules: modules.map((m: any) => ({
+        id: m.id,
+        type: m.type,
+        col: m.col,
+        row: m.row,
+        width: m.width,
+        height: m.height,
+        config: m.config
+      })),
+      layout: {
+        columnCount: 3,
+        columns: [
+          { index: 0, width: '15%', label: '侧边栏' },
+          { index: 1, width: '25%', label: '左列', fill: fillColumn.value.left },
+          { index: 2, width: '60%', label: '右列', fill: fillColumn.value.center }
+        ],
+        leftColumnWidth: leftColumnWidth.value
+      },
+      dataSource: pageConfig.dataSource || {
+        exampleJsonText: '',
+        customFieldRules: []
+      }
+    }
+
+    console.log('Saving config:', config)
+    await saveAnnotationPageConfig(projectId.value, config)
+
+    // 更新 localStorage，以便下次打开预览时使用最新配置
+    localStorage.setItem('annotation-preview-config', JSON.stringify(config))
+
+    alert('布局已保存')
+  } catch (e: any) {
+    console.error('Save layout error:', e)
+    alert('保存失败: ' + (e.message || '未知错误'))
+  } finally {
+    isSavingLayout.value = false
+  }
+}
+
+const submitConfirm = ref(false)
+
+const handleSubmit = () => {
+  submitConfirm.value = true
+}
+
+const confirmSubmit = async () => {
+  submitConfirm.value = false
+  try {
+    alert('任务已提交')
+    router.push('/tasks')
+  } catch (e) {
+    alert('提交失败')
+  }
+}
+
 const handleKeyDown = (e: KeyboardEvent) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
     return
   }
 
-  // Ctrl+S 保存
   if (e.ctrlKey && e.key === 's') {
     e.preventDefault()
     handleSave()
   }
-
-  // Z 键切换放大模式（如果图片组件支持）
-  if (e.key === 'z' && !e.ctrlKey) {
-    // TODO: 触发图片组件的放大模式
-  }
 }
 
-// 生命周期
 onMounted(() => {
   loadTask()
   window.addEventListener('keydown', handleKeyDown)
@@ -298,20 +380,97 @@ onUnmounted(() => {
         @submit="handleSubmit"
       />
 
-      <!-- 主内容区域 - 两列布局 -->
+      <!-- 主内容区域 -->
       <div class="annotation-content">
         <LayoutContainer
+          ref="layoutContainerRef"
           :layout="layout"
           :readonly="false"
+          :left-column-width="leftColumnWidth"
+          @update:left-column-width="handleLeftColumnWidthChange"
         >
-          <!-- 左列插槽 -->
           <template #left>
-            <!-- 组件树面板会通过 layout 配置自动渲染 -->
+            <div class="column-content" :class="{ fill: fillColumn.left }">
+              <template v-for="panel in layout.left.panels" :key="panel.id">
+                <div class="panel-wrapper" :class="{ fill: fillColumn.left }">
+                  <div class="panel-header">
+                    <span class="panel-title">{{ panel.title }}</span>
+                  </div>
+                  <div class="panel-body">
+                    <!-- 图片拉框标注器 -->
+                    <ImageBBoxAnnotator
+                      v-if="panel.toolId === 'ImageBBoxAnnotator'"
+                      :title="panel.title"
+                      :show-title="false"
+                    />
+                    <!-- 文本查看器 -->
+                    <TextViewer
+                      v-else-if="panel.toolId === 'TextViewer'"
+                      :config="(panel as any).config"
+                      :show-title="false"
+                    />
+                    <!-- 单选组件 -->
+                    <RadioSelector
+                      v-else-if="panel.toolId === 'RadioSelector'"
+                      :config="(panel as any).config"
+                      :show-title="false"
+                    />
+                    <!-- 文本输入 -->
+                    <TextInput
+                      v-else-if="panel.toolId === 'TextInput'"
+                      :config="(panel as any).config"
+                      :show-title="false"
+                    />
+                    <!-- 未知组件 -->
+                    <div v-else class="unknown-module">
+                      未知组件：{{ panel.toolId }}
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
           </template>
 
-          <!-- 中列插槽 -->
           <template #center>
-            <!-- 图片标注面板会通过 layout 配置自动渲染 -->
+            <div class="column-content" :class="{ fill: fillColumn.center }">
+              <template v-for="panel in layout.center.panels" :key="panel.id">
+                <div class="panel-wrapper" :class="{ fill: fillColumn.center }">
+                  <div class="panel-header">
+                    <span class="panel-title">{{ panel.title }}</span>
+                  </div>
+                  <div class="panel-body">
+                    <!-- 图片拉框标注器 -->
+                    <ImageBBoxAnnotator
+                      v-if="panel.toolId === 'ImageBBoxAnnotator'"
+                      :title="panel.title"
+                      :show-title="false"
+                    />
+                    <!-- 文本查看器 -->
+                    <TextViewer
+                      v-else-if="panel.toolId === 'TextViewer'"
+                      :config="(panel as any).config"
+                      :show-title="false"
+                    />
+                    <!-- 单选组件 -->
+                    <RadioSelector
+                      v-else-if="panel.toolId === 'RadioSelector'"
+                      :config="(panel as any).config"
+                      :show-title="false"
+                    />
+                    <!-- 文本输入 -->
+                    <TextInput
+                      v-else-if="panel.toolId === 'TextInput'"
+                      :config="(panel as any).config"
+                      :show-title="false"
+                    />
+                    <!-- 未知组件 -->
+                    <div v-else class="unknown-module">
+                      未知组件：{{ panel.toolId }}
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
           </template>
         </LayoutContainer>
       </div>
@@ -319,33 +478,54 @@ onUnmounted(() => {
 
     <!-- 底部操作栏 -->
     <div class="annotation-footer">
-      <button class="btn btn-prev" @click="loadCurrentItem()" :disabled="currentIndex <= 0">
-        ← 上一条
-      </button>
-      <button class="btn btn-save" @click="handleSave" :disabled="isSaving || !taskData[currentIndex]">
-        ✓ 保存
-      </button>
-      <button class="btn btn-next" @click="loadCurrentItem()" :disabled="currentIndex >= taskData.length - 1">
-        下一条 →
-      </button>
+      <!-- 预览模式：保存布局按钮 -->
+      <template v-if="isPreviewModeFlag">
+        <button class="btn-footer btn-save-layout" @click="handleSaveLayout" :disabled="isSavingLayout">
+          {{ isSavingLayout ? '保存中...' : '保存布局' }}
+        </button>
+      </template>
+      <!-- 任务模式：导航和保存按钮 -->
+      <template v-else>
+        <button class="btn-footer btn-prev" @click="currentIndex > 0 && currentIndex--" :disabled="currentIndex <= 0">
+          ← 上一条
+        </button>
+        <button class="btn-footer btn-save" @click="handleSave" :disabled="isSaving || !taskData[currentIndex]">
+          ✓ 保存
+        </button>
+        <button class="btn-footer btn-next" @click="currentIndex < taskData.length - 1 && currentIndex++" :disabled="currentIndex >= taskData.length - 1">
+          下一条 →
+        </button>
+      </template>
+    </div>
+
+    <!-- 提交确认对话框 -->
+    <div v-if="submitConfirm" class="dialog-overlay" @click.self="submitConfirm = false">
+      <div class="dialog">
+        <div class="dialog-title">确认提交</div>
+        <div class="dialog-content">确定要提交此任务吗？提交后将无法继续编辑。</div>
+        <div class="dialog-footer">
+          <button class="btn btn-secondary" @click="submitConfirm = false">取消</button>
+          <button class="btn btn-primary" @click="confirmSubmit">确定</button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
-<style scoped lang="scss">
+<style scoped>
 .annotation-runner {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: var(--bili-bg, #f4f5f7);
+  background: #F9FAFB;
 }
 
 .main-container {
   display: flex;
   flex: 1;
   min-height: 0;
-  padding: 15px;
-  gap: 12px;
+  padding: 16px;
+  gap: 16px;
   overflow: hidden;
 }
 
@@ -354,52 +534,222 @@ onUnmounted(() => {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background: var(--bili-card-bg, #ffffff);
-  border-radius: 10px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  background: #FFFFFF;
+  border: 1px solid #E5E7EB;
+  border-radius: 12px;
+}
+
+/* 列内容区 */
+.column-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  background: #F9FAFB;
+}
+
+/* 平铺模式：列内容区 */
+.column-content.fill {
+  background: #FFFFFF;
+}
+
+.panel-wrapper {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #E5E7EB;
+  border-radius: 8px;
+  background: #FFFFFF;
   overflow: hidden;
+  user-select: none;
+  flex-shrink: 0;  /* 默认不拉伸 - 不平铺 */
+}
+
+/* 平铺模式：组件填满高度 */
+.panel-wrapper.fill {
+  flex: 1;
+  flex-shrink: 1;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  background: #F9FAFB;
+  border-bottom: 1px solid #E5E7EB;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.panel-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: #111827;
+  user-select: none;
+}
+
+.panel-body {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;  /* 默认不拉伸 */
+}
+
+/* 平铺模式：panel-body 填满剩余空间 */
+.panel-wrapper.fill .panel-body {
+  flex: 1;
+  min-height: 0;
+}
+
+.unknown-module {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #9CA3AF;
+  user-select: none;
 }
 
 .annotation-footer {
   display: flex;
   justify-content: center;
-  gap: 12px;
-  padding: 15px;
-  background: var(--bili-card-bg, #ffffff);
-  border-top: 1px solid var(--bili-border, #e3e5e7);
+  gap: 16px;
+  padding: 16px;
+  background: #FFFFFF;
+  border-top: 1px solid #E5E7EB;
 }
 
-.btn {
+.btn-footer {
   padding: 10px 24px;
   border: none;
   border-radius: 8px;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color 0.2s ease;
+}
 
-  &.btn-prev,
-  &.btn-next {
-    background: var(--bili-blue, #00aeeC);
-    color: white;
+.btn-prev,
+.btn-next {
+  background: #165DFF;
+  color: white;
+}
 
-    &:hover:not(:disabled) {
-      background: var(--bili-blue-dark, #0096c7);
-    }
+.btn-prev:hover:not(:disabled),
+.btn-next:hover:not(:disabled) {
+  background: #0E42D2;
+}
+
+.btn-save {
+  background: #10B981;
+  color: white;
+}
+
+.btn-save:hover:not(:disabled) {
+  background: #059669;
+}
+
+.btn-save-layout {
+  background: #8B5CF6;
+  color: white;
+}
+
+.btn-save-layout:hover:not(:disabled) {
+  background: #7C3AED;
+}
+
+.btn-footer:disabled {
+  background: #E5E7EB;
+  color: #9CA3AF;
+  cursor: not-allowed;
+}
+
+/* 对话框 */
+.dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.dialog {
+  background: white;
+  border-radius: 12px;
+  width: 400px;
+  max-width: 90%;
+}
+
+.dialog-title {
+  font-size: 16px;
+  font-weight: 600;
+  padding: 16px 20px;
+  border-bottom: 1px solid #E5E7EB;
+}
+
+.dialog-content {
+  padding: 20px;
+  color: #4B5563;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 20px;
+  border-top: 1px solid #E5E7EB;
+}
+
+.btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-primary {
+  background: #165DFF;
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #0E42D2;
+}
+
+.btn-secondary {
+  background: #F3F4F6;
+  color: #374151;
+}
+
+.btn-secondary:hover {
+  background: #E5E7EB;
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+  .main-container {
+    padding: 8px;
+    gap: 8px;
   }
 
-  &.btn-save {
-    background: var(--bili-pink, #fb7299);
-    color: white;
-
-    &:hover:not(:disabled) {
-      background: var(--bili-pink-hover, #ff85a7);
-    }
+  .annotation-footer {
+    padding: 8px;
+    gap: 8px;
   }
 
-  &:disabled {
-    background: var(--bili-border, #e3e5e7);
-    cursor: not-allowed;
+  .btn-footer {
+    padding: 8px 16px;
+    font-size: 13px;
   }
 }
 </style>

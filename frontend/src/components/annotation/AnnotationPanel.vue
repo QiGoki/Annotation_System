@@ -1,20 +1,25 @@
 <script setup lang="ts">
 /**
- * 标注面板组件
- * 用于显示工具面板或自定义内容
+ * 标注面板组件 v4
+ *
+ * 用于显示工具面板，支持多种组件类型
  */
 import { ref, computed } from 'vue'
 import type { PanelConfig } from '@/types/annotation-tool'
 import ImageBBoxAnnotator from './ImageBBoxAnnotator.vue'
-import ComponentTree from './ComponentTree.vue'
+import TextViewer from './TextViewer.vue'
+import RadioSelector from './RadioSelector.vue'
+import TextInput from './TextInput.vue'
 
 interface Props {
   panel: PanelConfig
   readonly?: boolean
+  config?: any  // 模块配置
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  readonly: false
+  readonly: false,
+  config: {}
 })
 
 const emit = defineEmits<{
@@ -31,70 +36,6 @@ const toggleCollapse = () => {
   isCollapsed.value = !isCollapsed.value
   emit('update:collapsed', isCollapsed.value)
 }
-
-// 渲染工具组件
-const renderToolComponent = () => {
-  const toolId = props.panel.toolId
-
-  if (toolId === 'image_bbox') {
-    return h(ImageBBoxAnnotator, {
-      imageUrl: props.props?.imageUrl || '',
-      bboxes: props.props?.bboxes || [],
-      selectedBboxPath: props.props?.selectedBboxPath || null,
-      showAllBboxes: props.props?.showAllBboxes || false,
-      zoomable: props.panel.props?.zoomable ?? true,
-      bboxEditable: props.panel.props?.bboxEditable ?? true,
-      'onUpdate:selectedBboxPath': (path: number[] | null) => {
-        emit('update:panel', {
-          ...props.panel,
-          props: { ...props.panel.props, selectedBboxPath: path }
-        })
-      },
-      'onUpdate:bbox': (path: number[], bbox: [number, number, number, number]) => {
-        const bboxes = (props.props?.bboxes || []).map((b: any) =>
-          b.path.join('-') === path.join('-') ? { ...b, bbox } : b
-        )
-        emit('update:panel', {
-          ...props.panel,
-          props: { ...props.panel.props, bboxes }
-        })
-      }
-    })
-  }
-
-  if (toolId === 'component_tree') {
-    return h(ComponentTree, {
-      components: props.props?.components || [],
-      selectedPath: props.props?.selectedPath || null,
-      expandedPaths: props.props?.expandedPaths || {},
-      readonly: props.readonly,
-      'onUpdate:components': (components: any[]) => {
-        emit('update:panel', {
-          ...props.panel,
-          props: { ...props.panel.props, components }
-        })
-      },
-      'onUpdate:selectedPath': (path: number[] | null) => {
-        emit('update:panel', {
-          ...props.panel,
-          props: { ...props.panel.props, selectedPath: path }
-        })
-      },
-      'onUpdate:expandedPaths': (paths: Record<string, boolean>) => {
-        emit('update:panel', {
-          ...props.panel,
-          props: { ...props.panel.props, expandedPaths: paths }
-        })
-      }
-    })
-  }
-
-  // 未知工具类型
-  return h('div', { class: 'unknown-tool' }, `未知工具：${toolId}`)
-}
-
-// 手动导入 h 函数
-import { h } from 'vue'
 </script>
 
 <template>
@@ -111,14 +52,35 @@ import { h } from 'vue'
 
     <!-- 面板内容 -->
     <div v-show="isExpanded" class="panel-content">
-      <!-- 工具组件 -->
-      <component
-        :is="renderToolComponent()"
-        v-if="panel.type === 'tool' && panel.toolId"
+      <!-- 图片拉框标注器 -->
+      <ImageBBoxAnnotator
+        v-if="panel.toolId === 'ImageBBoxAnnotator'"
+        :title="panel.title"
+        :readonly="readonly"
       />
 
-      <!-- 自定义内容插槽 -->
-      <slot v-else name="custom"></slot>
+      <!-- 文本查看器 -->
+      <TextViewer
+        v-else-if="panel.toolId === 'TextViewer'"
+        :config="config"
+      />
+
+      <!-- 单选组件 -->
+      <RadioSelector
+        v-else-if="panel.toolId === 'RadioSelector'"
+        :config="config"
+      />
+
+      <!-- 文本输入 -->
+      <TextInput
+        v-else-if="panel.toolId === 'TextInput'"
+        :config="config"
+      />
+
+      <!-- 未知工具 -->
+      <div v-else class="unknown-tool">
+        未知工具：{{ panel.toolId }}
+      </div>
     </div>
   </div>
 </template>
@@ -127,7 +89,7 @@ import { h } from 'vue'
 .annotation-panel {
   display: flex;
   flex-direction: column;
-  border-bottom: 1px solid var(--bili-border, #e3e5e7);
+  border-bottom: 1px solid #E5E7EB;
 
   &:last-child {
     border-bottom: none;
@@ -144,38 +106,38 @@ import { h } from 'vue'
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 15px;
-  background: var(--bili-bg, #f4f5f7);
+  padding: 8px 16px;
+  background: #F9FAFB;
   cursor: pointer;
-  transition: background 0.2s;
-  border-bottom: 1px solid var(--bili-border, #e3e5e7);
+  transition: background 0.15s ease;
+  border-bottom: 1px solid #E5E7EB;
 
   &:hover {
-    background: var(--bili-border, #e3e5e7);
+    background: #F3F4F6;
   }
 }
 
 .panel-title {
   font-weight: 600;
   font-size: 13px;
-  color: var(--bili-text-primary, #212121);
+  color: #111827;
 }
 
 .panel-toggle {
   font-size: 12px;
-  color: var(--bili-text-secondary, #9499a0);
+  color: #9CA3AF;
 }
 
 .panel-content {
   flex: 1;
   overflow: auto;
-  background: var(--bili-card-bg, #ffffff);
+  background: #FFFFFF;
 }
 
 .unknown-tool {
   padding: 20px;
   text-align: center;
-  color: var(--bili-text-secondary, #9499a0);
+  color: #9CA3AF;
   font-size: 13px;
 }
 </style>
