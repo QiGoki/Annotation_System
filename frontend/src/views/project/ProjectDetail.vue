@@ -4,7 +4,7 @@
  */
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getProjectDetail, getProjectStatistics } from '@/api/project'
+import { getProjectDetail, getProjectStatistics, updateProject } from '@/api/project'
 import { getTaskList, claimTask, releaseTask } from '@/api/task'
 import { getProjectMembers, addProjectMember, removeProjectMember, updateMemberRole } from '@/api/project_members'
 import type { Project, ProjectStatistics } from '@/types/project'
@@ -183,6 +183,54 @@ const getUserName = (userId: number | null) => {
   return member ? member.username : `用户${userId}`
 }
 
+// 导入导出
+const handleImport = () => {
+  router.push(`/projects/${projectId.value}/import`)
+}
+
+const handleExport = () => {
+  window.open(`/api/v1/export?project_id=${projectId.value}&format=jsonl`)
+}
+
+// 编辑基础信息
+const editDialogVisible = ref(false)
+const editForm = ref({
+  name: '',
+  description: '',
+  image_base_path: ''
+})
+
+const openEditDialog = () => {
+  if (project.value) {
+    editForm.value = {
+      name: project.value.name,
+      description: project.value.description || '',
+      image_base_path: project.value.image_base_path || ''
+    }
+    editDialogVisible.value = true
+  }
+}
+
+const handleSaveEdit = async () => {
+  if (!editForm.value.name.trim()) {
+    alert('项目名称不能为空')
+    return
+  }
+
+  try {
+    await updateProject(projectId.value, {
+      name: editForm.value.name,
+      description: editForm.value.description,
+      image_base_path: editForm.value.image_base_path || null
+    })
+    alert('保存成功')
+    editDialogVisible.value = false
+    loadProject()
+  } catch (e: any) {
+    alert(e.response?.data?.detail || '保存失败')
+  }
+}
+
 onMounted(() => {
   loadProject()
 })
@@ -216,7 +264,16 @@ onMounted(() => {
 
     <!-- 基本信息 -->
     <div class="card">
-      <h3 class="card-title">基本信息</h3>
+      <div class="card-header-row">
+        <h3 class="card-title">基本信息</h3>
+        <button class="btn btn-secondary btn-sm" @click="openEditDialog">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+          编辑
+        </button>
+      </div>
       <div class="info-grid">
         <div class="info-item">
           <span class="info-label">项目名称</span>
@@ -225,6 +282,10 @@ onMounted(() => {
         <div class="info-item full-width">
           <span class="info-label">项目描述</span>
           <span class="info-value">{{ project?.description || '暂无描述' }}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">图片根目录</span>
+          <span class="info-value">{{ project?.image_base_path || '未设置' }}</span>
         </div>
         <div class="info-item">
           <span class="info-label">创建时间</span>
@@ -304,7 +365,27 @@ onMounted(() => {
     </div>
 
     <!-- 任务列表 -->
-    <h3 class="section-title">任务列表</h3>
+    <div class="section-header">
+      <h3 class="section-title">任务列表</h3>
+      <div class="section-actions">
+        <button class="btn btn-primary btn-sm" @click="handleImport">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          导入任务
+        </button>
+        <button class="btn btn-secondary btn-sm" @click="handleExport">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          导出结果
+        </button>
+      </div>
+    </div>
     <div class="card table-card">
       <table class="table">
         <thead>
@@ -352,6 +433,32 @@ onMounted(() => {
       <!-- 加载状态 -->
       <div v-if="loading" class="loading-overlay">
         <div class="loading-spinner"></div>
+      </div>
+    </div>
+
+    <!-- 编辑基础信息对话框 -->
+    <div v-if="editDialogVisible" class="dialog-overlay" @click.self="editDialogVisible = false">
+      <div class="dialog">
+        <div class="dialog-title">编辑基本信息</div>
+        <div class="dialog-body">
+          <div class="form-group">
+            <label class="form-label">项目名称</label>
+            <input v-model="editForm.name" type="text" class="form-input" placeholder="请输入项目名称" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">项目描述</label>
+            <textarea v-model="editForm.description" class="form-input" rows="3" placeholder="请输入项目描述"></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">图片根目录</label>
+            <input v-model="editForm.image_base_path" type="text" class="form-input" placeholder="如 /mnt/data/images" />
+            <span class="form-hint">图片存储的服务器本地路径</span>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button class="btn btn-secondary" @click="editDialogVisible = false">取消</button>
+          <button class="btn btn-primary" @click="handleSaveEdit">保存</button>
+        </div>
       </div>
     </div>
 
@@ -478,6 +585,11 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.section-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .info-grid {
@@ -644,5 +756,22 @@ onMounted(() => {
   text-align: center;
   color: #9CA3AF;
   padding: 40px 16px;
+}
+
+.card-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.card-header-row .card-title {
+  margin-bottom: 0;
+}
+
+.form-hint {
+  font-size: 12px;
+  color: #9CA3AF;
+  margin-top: 4px;
 }
 </style>

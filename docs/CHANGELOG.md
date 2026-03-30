@@ -1,4 +1,64 @@
-# 开发日志 2026-03-30
+# 开发日志
+
+## 2026-03-30 (续)
+
+### 图片基础路径功能
+
+**功能说明：** 支持配置服务器本地图片目录，通过后端代理访问图片，解决前端无法直接访问本地文件的问题。
+
+**修改文件：**
+- `backend/app/api/v1/projects.py` - 添加图片代理接口 `GET /{project_id}/images/{image_path:path}`
+- `backend/app/schemas/project.py` - ProjectUpdate 添加 `image_base_path` 字段
+- `frontend/src/composables/useAnnotationContext.ts` - Context 添加 `projectId` 和 `imageBasePath`
+- `frontend/src/views/annotation/AnnotationRunner.vue` - 加载项目信息并设置到 context
+- `frontend/src/components/annotation/ImageBBoxAnnotator.vue` - 图片 URL 构建，支持代理路径
+
+**技术要点：**
+- 后端代理接口无需认证（供 `<img>` 标签直接访问）
+- 路径安全检查：确保请求路径在 `image_base_path` 范围内，防止目录遍历攻击
+- 图片 URL 编码：使用 `encodeURIComponent` 处理路径
+
+### 图片 URL 构建修复
+
+**问题：** 图片字段和路径清洗前缀可能是数组格式。
+
+**修复：**
+- 图片字段为数组时，取第一个元素
+- `pathClean.prefix` 为数组时，遍历匹配并移除
+
+```typescript
+// 处理图片字段为数组
+if (Array.isArray(rawValue)) {
+  rawValue = rawValue[0]
+}
+
+// 处理前缀为数组
+let prefixes = pathClean.prefix
+if (!Array.isArray(prefixes)) {
+  prefixes = [prefixes]
+}
+for (const prefix of prefixes) {
+  if (prefix && url.startsWith(prefix)) {
+    url = url.replace(prefix, '')
+    break
+  }
+}
+```
+
+### 项目详情页编辑功能
+
+**文件：** `frontend/src/views/project/ProjectDetail.vue`
+
+- 支持编辑项目基本信息（名称、描述、图片根目录）
+- 添加"导入任务"和"导出结果"按钮
+
+### 其他修复
+
+1. **数组解析"展开"按钮** - 展开所有数组项（最多5个），而非仅第一个
+2. **字段列表滚动条** - 添加纵向滚动条支持
+3. **布局配置加载** - 预览模式下正确加载已保存的布局配置
+
+## 2026-03-30
 
 ## 今日完成
 

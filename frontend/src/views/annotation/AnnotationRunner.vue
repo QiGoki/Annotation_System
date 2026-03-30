@@ -1,10 +1,10 @@
 <script setup lang="ts">
 /**
- * 标注执行页面 v4 - StepFun风格
+ * 标注执行页面 v5
  *
- * 使用 AnnotationContext 共享状态，支持多种组件类型
+ * 适配新数据结构：Project -> Task -> DataItems
  */
-import { ref, computed, onMounted, onUnmounted, provide } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AnnotationSidebar from '@/components/annotation/AnnotationSidebar.vue'
 import LayoutContainer from '@/components/annotation/LayoutContainer.vue'
@@ -15,21 +15,16 @@ import TextInput from '@/components/annotation/TextInput.vue'
 import { useAnnotationSidebar } from '@/composables/useAnnotationSidebar'
 import { createAnnotationContext } from '@/composables/useAnnotationContext'
 import { getModuleById } from '@/composables/useAnnotationModuleRegistry'
-import { getTaskDetail, saveAnnotation } from '@/api/task'
-import { getAnnotationPageConfig, saveAnnotationPageConfig } from '@/api/project'
-import type { LayoutConfig, PanelConfig } from '@/types/annotation-tool'
-import type { PageConfig, ModuleInstance } from '@/types/annotation-module'
+import { getTaskDetail, saveAnnotation, submitAnnotation } from '@/api/task'
+import { getAnnotationPageConfig, saveAnnotationPageConfig, getProjectDetail } from '@/api/project'
+import type { LayoutConfig, PanelConfig, ColumnConfig } from '@/types/annotation-module'
 
 const route = useRoute()
 const router = useRouter()
 
 const isPreviewModeFlag = ref(route.path.includes('/preview'))
 
-const taskId = computed(() => {
-  if (isPreviewModeFlag.value) return 0
-  return Number(route.params.id)
-})
-
+const taskId = computed(() => Number(route.params.id))
 const projectId = computed(() => {
   if (isPreviewModeFlag.value) {
     return Number(route.params.id)
@@ -37,93 +32,110 @@ const projectId = computed(() => {
   return task.value?.project_id || 0
 })
 
+// 任务数据
 const task = ref<any>(null)
-const taskData = ref<any[]>([])
+const dataItems = ref<any[]>([])
+const projectConfig = ref<any>(null)
+
 const loading = ref(false)
 const isSaving = ref(false)
 
-const _previewConfig = ref<PageConfig | null>(null)
-const _previewData = ref<any>(null)
-const _pageConfig = ref<PageConfig | null>(null)  // 存储页面配置（用于任务模式）
-
 const sidebarCollapsed = ref(false)
 
-// 创建 AnnotationContext（用于 ImageBBoxAnnotator）
+// 创建 AnnotationContext
 const annotationContext = createAnnotationContext()
 
-const {
-  currentIndex,
-  stats,
-  completedItems,
-  remainingItems,
-  selectItem,
-  markAsSaved,
-  reset
-} = useAnnotationSidebar(taskData.value)
+// 当前选中的数据条目索引
+const currentIndex = ref(0)
 
-const layout = ref<LayoutConfig>({
-  left: { panels: [] },
-  center: { panels: [] },
-  right: { panels: [] }
-})
+// 使用新版 LayoutConfig
+const layout = ref<LayoutConfig | null>(null)
 
-// 每列是否平铺满画布（从配置读取）
-const fillColumn = ref({
-  left: false,
-  center: false
-})
-
-// 左列宽度
-const leftColumnWidth = ref(350)
+// 列宽缓存
+const columnWidthsCache = ref<number[]>([])
 
 // 布局容器引用
 const layoutContainerRef = ref<InstanceType<typeof LayoutContainer> | null>(null)
 
-// 当前选中的面板 ID
-const selectedPanelId = ref<string | null>(null)
+// 计算当前数据条目
+const currentItem = computed(() => dataItems.value[currentIndex.value])
+
+// 统计信息
+const stats = computed(() => {
+  const total = dataItems.value.length
+  const completed = dataItems.value.filter(item => item.status === 'completed').length
+  return { total, completed }
+})
+
+// 根据状态获取数据条目列表
+const completedItems = computed(() => {
+  return dataItems.value
+    .map((item, index) => ({ ...item, index }))
+    .filter(item => item.status === 'completed')
+})
+
+const remainingItems = computed(() => {
+  return dataItems.value
+    .map((item, index) => ({ ...item, index }))
+    .filter(item => item.status !== 'completed')
+})
+
+// 选择数据条目
+const selectItem = (index: number) => {
+  currentIndex.value = index
+}
+
+// 标记为已保存
+const markAsSaved = (index: number) => {
+  if (dataItems.value[index]) {
+    dataItems.value[index].status = 'doing'
+  }
+}
+
+// 重置
+const reset = () => {
+  currentIndex.value = 0
+}
 
 // 根据 module.type 返回对应的组件
 const getComponentForModule = (moduleType: string) => {
   switch (moduleType) {
     case 'ImageBBoxAnnotator':
       return ImageBBoxAnnotator
+    case 'TextViewer':
+      return TextViewer
+    case 'RadioSelector':
+      return RadioSelector
+    case 'TextInput':
+      return TextInput
     default:
       return null
   }
 }
 
-// 构建布局配置
-const buildLayoutFromConfig = (modules: ModuleInstance[], layoutConfig?: any) => {
-  const leftPanels: PanelConfig[] = []
-  const centerPanels: PanelConfig[] = []
+// 构建新版布局配置
+const buildLayoutFromConfig = (modules: any[], layoutConfig?: LayoutConfig) => {
+  let columns: ColumnConfig[] = []
 
-  // 读取平铺配置
-  if (layoutConfig?.columns) {
-    const leftCol = layoutConfig.columns.find((c: any) => c.index === 1)
-    const rightCol = layoutConfig.columns.find((c: any) => c.index === 2)
-    fillColumn.value.left = leftCol?.fill ?? false
-    fillColumn.value.center = rightCol?.fill ?? false
+  if (layoutConfig?.columns && layoutConfig.columns.length > 0) {
+    columns = layoutConfig.columns
+      .filter(col => col.index > 0)
+      .map(col => ({
+        ...col,
+        panels: []
+      }))
   }
 
-  // 读取左列宽度（预览模式从配置，任务模式从 localStorage）
-  if (isPreviewModeFlag.value) {
-    leftColumnWidth.value = layoutConfig?.leftColumnWidth || 350
-  } else {
-    const savedWidth = localStorage.getItem(`annotation-layout-${projectId.value}`)
-    if (savedWidth) {
-      try {
-        const parsed = JSON.parse(savedWidth)
-        leftColumnWidth.value = parsed.leftColumnWidth || 350
-      } catch (e) {
-        leftColumnWidth.value = 350
-      }
-    }
+  if (columns.length === 0) {
+    columns = [
+      { index: 1, width: '40%', label: '左列', fill: false, panels: [] },
+      { index: 2, width: '60%', label: '右列', fill: false, panels: [] }
+    ]
   }
 
-  // 存储模块配置以便渲染时获取
-  const moduleConfigs: Record<string, any> = {}
-  modules.forEach(m => {
-    moduleConfigs[m.id] = m.config
+  const panelsByColumn: Record<number, PanelConfig[]> = {}
+  columns.forEach(col => {
+    panelsByColumn[col.index] = []
   })
 
   modules.forEach((module) => {
@@ -134,23 +146,27 @@ const buildLayoutFromConfig = (modules: ModuleInstance[], layoutConfig?: any) =>
       toolId: module.type,
       title: module.config?.title || moduleDef?.name || '未知组件',
       collapsible: true,
-      defaultExpanded: true
+      defaultExpanded: true,
+      config: module.config
     }
 
-    // 存储配置到 panel（扩展属性）
-    ;(panel as any).config = module.config
-
-    if (module.col === 1) {
-      leftPanels.push(panel)
+    const targetCol = module.col || 2
+    if (panelsByColumn[targetCol]) {
+      panelsByColumn[targetCol].push(panel)
     } else {
-      centerPanels.push(panel)
+      const lastColIndex = columns[columns.length - 1]?.index || 2
+      if (panelsByColumn[lastColIndex]) {
+        panelsByColumn[lastColIndex].push(panel)
+      }
     }
   })
 
   layout.value = {
-    left: { panels: leftPanels },
-    center: { panels: centerPanels },
-    right: { panels: [] }
+    columnCount: columns.length,
+    columns: columns.map(col => ({
+      ...col,
+      panels: panelsByColumn[col.index] || []
+    }))
   }
 }
 
@@ -158,7 +174,20 @@ const buildLayoutFromConfig = (modules: ModuleInstance[], layoutConfig?: any) =>
 const loadTask = async () => {
   loading.value = true
   try {
+    // 获取项目信息（包括 image_base_path）
+    let imageBasePath: string | null = null
+    try {
+      const projectDetail = await getProjectDetail(projectId.value)
+      imageBasePath = projectDetail.image_base_path || null
+    } catch (e) {
+      console.warn('[AnnotationRunner] 获取项目详情失败', e)
+    }
+
+    // 设置项目信息到 context
+    annotationContext.setProjectInfo(projectId.value, imageBasePath)
+
     if (isPreviewModeFlag.value) {
+      // 预览模式
       const configStr = localStorage.getItem('annotation-preview-config')
       const dataStr = localStorage.getItem('annotation-preview-data')
 
@@ -168,35 +197,49 @@ const loadTask = async () => {
         return
       }
 
-      _previewConfig.value = JSON.parse(configStr)
-      _previewData.value = JSON.parse(dataStr)
-      taskData.value = [_previewData.value]
+      const previewConfig = JSON.parse(configStr)
+      const previewData = JSON.parse(dataStr)
 
-      if (_previewConfig.value?.modules) {
-        buildLayoutFromConfig(_previewConfig.value.modules, _previewConfig.value.layout)
+      // 预览模式：模拟一个任务包含多条数据
+      task.value = {
+        id: 0,
+        project_id: projectId.value,
+        name: '预览任务'
+      }
+      dataItems.value = Array.isArray(previewData) ? previewData.map((item: any, index: number) => ({
+        id: index,
+        item_index: index,
+        data_source: item,
+        status: 'pending'
+      })) : [{
+        id: 0,
+        item_index: 0,
+        data_source: previewData,
+        status: 'pending'
+      }]
+
+      projectConfig.value = previewConfig
+      if (previewConfig?.modules) {
+        buildLayoutFromConfig(previewConfig.modules, previewConfig.layout)
       }
 
       reset()
       loadCurrentItem()
     } else {
+      // 任务模式
       const result = await getTaskDetail(taskId.value)
       task.value = result
-      // data_source 是一个数组，包含多条数据
-      taskData.value = Array.isArray(result.data_source) ? result.data_source : []
+      dataItems.value = result.data_items || []
+      projectConfig.value = result.project_config
 
-      try {
-        const pageConfig = await getAnnotationPageConfig(projectId.value)
-        _pageConfig.value = pageConfig
-        if (pageConfig?.modules) {
-          buildLayoutFromConfig(pageConfig.modules, pageConfig.layout)
-        }
-      } catch (e) {
-        console.warn('未找到页面配置，使用默认布局')
+      if (projectConfig.value?.modules) {
+        buildLayoutFromConfig(projectConfig.value.modules, projectConfig.value.layout)
       }
 
       reset()
 
-      const firstUnsavedIndex = taskData.value.findIndex((item: any) => !item._saved)
+      // 找到第一个未完成的条目
+      const firstUnsavedIndex = dataItems.value.findIndex(item => item.status !== 'completed')
       if (firstUnsavedIndex >= 0) {
         currentIndex.value = firstUnsavedIndex
       }
@@ -204,6 +247,7 @@ const loadTask = async () => {
       loadCurrentItem()
     }
   } catch (e) {
+    console.error(e)
     alert(isPreviewModeFlag.value ? '加载预览失败' : '加载任务失败')
   } finally {
     loading.value = false
@@ -212,39 +256,33 @@ const loadTask = async () => {
 
 // 加载当前条目
 const loadCurrentItem = () => {
-  const item = taskData.value[currentIndex.value]
+  const item = currentItem.value
   if (!item) return
 
-  // 设置原始数据到 context
-  annotationContext.setRawData(item)
+  annotationContext.setRawData(item.data_source)
 
-  // 设置 ImageBBoxAnnotator 的配置到 context（用于 bbox 标注）
-  const pageConfig = isPreviewModeFlag.value ? _previewConfig.value : _pageConfig.value
-  if (pageConfig?.modules) {
-    const imageModule = pageConfig.modules.find(m => m.type === 'ImageBBoxAnnotator')
+  if (projectConfig.value?.modules) {
+    const imageModule = projectConfig.value.modules.find((m: any) => m.type === 'ImageBBoxAnnotator')
     if (imageModule?.config) {
       annotationContext.setConfig(imageModule.config)
     }
   }
-
-  selectedPanelId.value = null
 }
 
 // 保存标注
 const handleSave = async () => {
   if (isSaving.value) return
+  const item = currentItem.value
+  if (!item) return
+
   isSaving.value = true
 
   try {
-    const item = taskData.value[currentIndex.value]
-    if (!item) return
-
-    // 获取输出数据
     const outputData = annotationContext.getOutputData()
 
-    await saveAnnotation(taskId.value, {
+    await saveAnnotation(item.id, {
       result_json: {
-        ...item,
+        ...item.data_source,
         annotations: outputData,
         _index: currentIndex.value
       }
@@ -259,16 +297,46 @@ const handleSave = async () => {
   }
 }
 
-// 左列宽度变化处理
-const handleLeftColumnWidthChange = (width: number) => {
-  leftColumnWidth.value = width
+// 提交标注
+const handleSubmit = async () => {
+  if (isSaving.value) return
+  const item = currentItem.value
+  if (!item) return
 
-  // 任务模式：自动保存到 localStorage
-  if (!isPreviewModeFlag.value) {
-    localStorage.setItem(`annotation-layout-${projectId.value}`, JSON.stringify({
-      leftColumnWidth: width
-    }))
+  isSaving.value = true
+
+  try {
+    const outputData = annotationContext.getOutputData()
+
+    const result = await submitAnnotation(item.id, {
+      result_json: {
+        ...item.data_source,
+        annotations: outputData,
+        _index: currentIndex.value
+      }
+    })
+
+    // 更新状态
+    dataItems.value[currentIndex.value].status = 'completed'
+
+    // 跳转到下一条
+    if (result.data?.next_item_id) {
+      currentIndex.value = result.data.next_item_index
+    } else if (currentIndex.value < dataItems.value.length - 1) {
+      currentIndex.value++
+    }
+
+    alert('提交成功')
+  } catch (e) {
+    alert('提交失败')
+  } finally {
+    isSaving.value = false
   }
+}
+
+// 列宽变化处理
+const handleColumnWidthsChange = (widths: number[]) => {
+  columnWidthsCache.value = widths
 }
 
 // 保存布局（仅预览模式）
@@ -278,71 +346,55 @@ const handleSaveLayout = async () => {
   isSavingLayout.value = true
 
   try {
-    const pageConfig = _previewConfig.value
-    if (!pageConfig) {
-      alert('配置不存在')
+    // 获取当前配置
+    const configStr = localStorage.getItem('annotation-preview-config')
+    if (!configStr) {
+      alert('无法获取预览配置')
       return
     }
 
-    // 确保 modules 格式正确
-    const modules = pageConfig.modules || []
+    const previewConfig = JSON.parse(configStr)
 
-    const config: PageConfig = {
-      modules: modules.map((m: any) => ({
-        id: m.id,
-        type: m.type,
-        col: m.col,
-        row: m.row,
-        width: m.width,
-        height: m.height,
-        config: m.config
-      })),
-      layout: {
-        columnCount: 3,
-        columns: [
-          { index: 0, width: '15%', label: '侧边栏' },
-          { index: 1, width: '25%', label: '左列', fill: fillColumn.value.left },
-          { index: 2, width: '60%', label: '右列', fill: fillColumn.value.center }
-        ],
-        leftColumnWidth: leftColumnWidth.value
-      },
-      dataSource: pageConfig.dataSource || {
-        exampleJsonText: '',
-        customFieldRules: []
+    // 从 LayoutContainer 获取当前列宽（像素）
+    let currentWidths: number[] = []
+    if (layoutContainerRef.value) {
+      currentWidths = layoutContainerRef.value.getColumnWidths()
+    }
+
+    // 更新列宽配置（将像素转换为百分比）
+    if (currentWidths.length > 0) {
+      const totalWidth = currentWidths.reduce((a, b) => a + b, 0)
+      if (totalWidth > 0) {
+        previewConfig.layout = {
+          ...previewConfig.layout,
+          columns: previewConfig.layout.columns.map((col: any, index: number) => {
+            const pixelWidth = currentWidths[index] || 300
+            const percentWidth = Math.round(pixelWidth / totalWidth * 100)
+            return {
+              ...col,
+              width: `${percentWidth}%`,
+              panels: undefined
+            }
+          })
+        }
       }
     }
 
-    console.log('Saving config:', config)
-    await saveAnnotationPageConfig(projectId.value, config)
-
-    // 更新 localStorage，以便下次打开预览时使用最新配置
-    localStorage.setItem('annotation-preview-config', JSON.stringify(config))
-
+    // 保存到后端
+    await saveAnnotationPageConfig(projectId.value, previewConfig)
     alert('布局已保存')
+
+    // 更新 localStorage
+    localStorage.setItem('annotation-preview-config', JSON.stringify(previewConfig))
   } catch (e: any) {
-    console.error('Save layout error:', e)
-    alert('保存失败: ' + (e.message || '未知错误'))
+    console.error(e)
+    alert(e.response?.data?.detail || '保存失败')
   } finally {
     isSavingLayout.value = false
   }
 }
 
-const submitConfirm = ref(false)
-
-const handleSubmit = () => {
-  submitConfirm.value = true
-}
-
-const confirmSubmit = async () => {
-  submitConfirm.value = false
-  try {
-    alert('任务已提交')
-    router.push('/tasks')
-  } catch (e) {
-    alert('提交失败')
-  }
-}
-
+// 快捷键
 const handleKeyDown = (e: KeyboardEvent) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
     return
@@ -353,6 +405,11 @@ const handleKeyDown = (e: KeyboardEvent) => {
     handleSave()
   }
 }
+
+// 监听索引变化，重新加载数据
+watch(currentIndex, () => {
+  loadCurrentItem()
+})
 
 onMounted(() => {
   loadTask()
@@ -377,22 +434,22 @@ onUnmounted(() => {
         :title="task?.name || '标注任务'"
         @select:item="selectItem"
         @update:collapsed="sidebarCollapsed = $event"
-        @submit="handleSubmit"
       />
 
       <!-- 主内容区域 -->
       <div class="annotation-content">
         <LayoutContainer
+          v-if="layout"
           ref="layoutContainerRef"
           :layout="layout"
           :readonly="false"
-          :left-column-width="leftColumnWidth"
-          @update:left-column-width="handleLeftColumnWidthChange"
+          @update:column-widths="handleColumnWidthsChange"
         >
-          <template #left>
-            <div class="column-content" :class="{ fill: fillColumn.left }">
-              <template v-for="panel in layout.left.panels" :key="panel.id">
-                <div class="panel-wrapper" :class="{ fill: fillColumn.left }">
+          <!-- 动态渲染每列 -->
+          <template v-for="column in layout.columns" :key="column.index" #[`column-${column.index}`]>
+            <div class="column-content" :class="{ fill: column.fill }">
+              <template v-for="panel in column.panels" :key="panel.id">
+                <div class="panel-wrapper" :class="{ fill: column.fill }">
                   <div class="panel-header">
                     <span class="panel-title">{{ panel.title }}</span>
                   </div>
@@ -406,61 +463,19 @@ onUnmounted(() => {
                     <!-- 文本查看器 -->
                     <TextViewer
                       v-else-if="panel.toolId === 'TextViewer'"
-                      :config="(panel as any).config"
+                      :config="panel.config"
                       :show-title="false"
                     />
                     <!-- 单选组件 -->
                     <RadioSelector
                       v-else-if="panel.toolId === 'RadioSelector'"
-                      :config="(panel as any).config"
+                      :config="panel.config"
                       :show-title="false"
                     />
                     <!-- 文本输入 -->
                     <TextInput
                       v-else-if="panel.toolId === 'TextInput'"
-                      :config="(panel as any).config"
-                      :show-title="false"
-                    />
-                    <!-- 未知组件 -->
-                    <div v-else class="unknown-module">
-                      未知组件：{{ panel.toolId }}
-                    </div>
-                  </div>
-                </div>
-              </template>
-            </div>
-          </template>
-
-          <template #center>
-            <div class="column-content" :class="{ fill: fillColumn.center }">
-              <template v-for="panel in layout.center.panels" :key="panel.id">
-                <div class="panel-wrapper" :class="{ fill: fillColumn.center }">
-                  <div class="panel-header">
-                    <span class="panel-title">{{ panel.title }}</span>
-                  </div>
-                  <div class="panel-body">
-                    <!-- 图片拉框标注器 -->
-                    <ImageBBoxAnnotator
-                      v-if="panel.toolId === 'ImageBBoxAnnotator'"
-                      :title="panel.title"
-                      :show-title="false"
-                    />
-                    <!-- 文本查看器 -->
-                    <TextViewer
-                      v-else-if="panel.toolId === 'TextViewer'"
-                      :config="(panel as any).config"
-                      :show-title="false"
-                    />
-                    <!-- 单选组件 -->
-                    <RadioSelector
-                      v-else-if="panel.toolId === 'RadioSelector'"
-                      :config="(panel as any).config"
-                      :show-title="false"
-                    />
-                    <!-- 文本输入 -->
-                    <TextInput
-                      v-else-if="panel.toolId === 'TextInput'"
-                      :config="(panel as any).config"
+                      :config="panel.config"
                       :show-title="false"
                     />
                     <!-- 未知组件 -->
@@ -473,6 +488,11 @@ onUnmounted(() => {
             </div>
           </template>
         </LayoutContainer>
+
+        <!-- 无布局时的提示 -->
+        <div v-else class="no-layout">
+          <p>加载布局中...</p>
+        </div>
       </div>
     </div>
 
@@ -489,25 +509,13 @@ onUnmounted(() => {
         <button class="btn-footer btn-prev" @click="currentIndex > 0 && currentIndex--" :disabled="currentIndex <= 0">
           ← 上一条
         </button>
-        <button class="btn-footer btn-save" @click="handleSave" :disabled="isSaving || !taskData[currentIndex]">
+        <button class="btn-footer btn-save" @click="handleSave" :disabled="isSaving || !currentItem">
           ✓ 保存
         </button>
-        <button class="btn-footer btn-next" @click="currentIndex < taskData.length - 1 && currentIndex++" :disabled="currentIndex >= taskData.length - 1">
+        <button class="btn-footer btn-next" @click="currentIndex < dataItems.length - 1 && currentIndex++" :disabled="currentIndex >= dataItems.length - 1">
           下一条 →
         </button>
       </template>
-    </div>
-
-    <!-- 提交确认对话框 -->
-    <div v-if="submitConfirm" class="dialog-overlay" @click.self="submitConfirm = false">
-      <div class="dialog">
-        <div class="dialog-title">确认提交</div>
-        <div class="dialog-content">确定要提交此任务吗？提交后将无法继续编辑。</div>
-        <div class="dialog-footer">
-          <button class="btn btn-secondary" @click="submitConfirm = false">取消</button>
-          <button class="btn btn-primary" @click="confirmSubmit">确定</button>
-        </div>
-      </div>
     </div>
   </div>
 </template>
@@ -564,7 +572,7 @@ onUnmounted(() => {
   background: #FFFFFF;
   overflow: hidden;
   user-select: none;
-  flex-shrink: 0;  /* 默认不拉伸 - 不平铺 */
+  flex-shrink: 0;
 }
 
 /* 平铺模式：组件填满高度 */
@@ -594,7 +602,7 @@ onUnmounted(() => {
 .panel-body {
   display: flex;
   flex-direction: column;
-  flex-shrink: 0;  /* 默认不拉伸 */
+  flex-shrink: 0;
 }
 
 /* 平铺模式：panel-body 填满剩余空间 */
@@ -610,6 +618,14 @@ onUnmounted(() => {
   height: 100%;
   color: #9CA3AF;
   user-select: none;
+}
+
+.no-layout {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #6B7280;
 }
 
 .annotation-footer {
@@ -664,75 +680,6 @@ onUnmounted(() => {
   background: #E5E7EB;
   color: #9CA3AF;
   cursor: not-allowed;
-}
-
-/* 对话框 */
-.dialog-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.dialog {
-  background: white;
-  border-radius: 12px;
-  width: 400px;
-  max-width: 90%;
-}
-
-.dialog-title {
-  font-size: 16px;
-  font-weight: 600;
-  padding: 16px 20px;
-  border-bottom: 1px solid #E5E7EB;
-}
-
-.dialog-content {
-  padding: 20px;
-  color: #4B5563;
-}
-
-.dialog-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  padding: 16px 20px;
-  border-top: 1px solid #E5E7EB;
-}
-
-.btn {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.btn-primary {
-  background: #165DFF;
-  color: white;
-}
-
-.btn-primary:hover {
-  background: #0E42D2;
-}
-
-.btn-secondary {
-  background: #F3F4F6;
-  color: #374151;
-}
-
-.btn-secondary:hover {
-  background: #E5E7EB;
 }
 
 /* 响应式 */

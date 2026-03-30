@@ -24,6 +24,7 @@ class ProjectUpdate(BaseModel):
     """更新项目请求 Schema"""
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = None
+    image_base_path: Optional[str] = Field(None, description="图片/数据基础路径")
     config_json: Optional[dict] = None
     is_deleted: Optional[bool] = None
 

@@ -5,8 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
 from sqlalchemy.orm import Session
 from typing import List, Optional, Any, Dict
 from io import BytesIO
+from pathlib import Path
 import json
 import re
+import mimetypes
 from pydantic import BaseModel, Field
 
 from app.core.database import get_db
@@ -386,3 +388,63 @@ def save_annotation_page_config(
     db.refresh(project)
 
     return {"message": "配置已保存", "config": config}
+
+
+@router.get("/{project_id}/images/{image_path:path}")
+def get_project_image(
+    project_id: int,
+    image_path: str,
+    db: Session = Depends(get_db)
+):
+    """获取项目图片（代理接口）
+
+    根据 project.image_base_path + image_path 读取图片文件
+    注意：此接口不需要认证，用于前端 <img> 标签直接访问
+    """
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    if not project.image_base_path:
+        raise HTTPException(status_code=400, detail="项目未配置图片根目录")
+
+    # 构建完整路径
+    full_path = Path(project.image_base_path) / image_path
+
+    # 调试输出
+    print(f"[图片代理] project_id={project_id}")
+    print(f"[图片代理] image_base_path={project.image_base_path}")
+    print(f"[图片代理] image_path={image_path}")
+    print(f"[图片代理] full_path={full_path}")
+    print(f"[图片代理] full_path.exists()={full_path.exists()}")
+
+    # 安全检查：确保路径在 image_base_path 内（防止目录遍历攻击）
+    try:
+        full_path = full_path.resolve()
+        base_path = Path(project.image_base_path).resolve()
+        print(f"[图片代理] resolved full_path={full_path}")
+        print(f"[图片代理] resolved base_path={base_path}")
+        if not str(full_path).startswith(str(base_path)):
+            raise HTTPException(status_code=403, detail="非法路径")
+    except Exception:
+        raise HTTPException(status_code=400, detail="无效的路径")
+
+    # 检查文件是否存在
+    if not full_path.exists():
+        raise HTTPException(status_code=404, detail="图片不存在")
+
+    if not full_path.is_file():
+        raise HTTPException(status_code=400, detail="不是有效文件")
+
+    # 获取 MIME 类型
+    mime_type, _ = mimetypes.guess_type(str(full_path))
+    if not mime_type or not mime_type.startswith("image/"):
+        mime_type = "application/octet-stream"
+
+    # 读取文件
+    try:
+        with open(full_path, "rb") as f:
+            content = f.read()
+        return Response(content=content, media_type=mime_type)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"读取文件失败: {str(e)}")

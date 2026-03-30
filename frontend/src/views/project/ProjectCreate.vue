@@ -11,6 +11,7 @@ const router = useRouter()
 const form = ref({
   name: '',
   description: '',
+  image_base_path: '',
 })
 
 const loading = ref(false)
@@ -33,6 +34,7 @@ const handleSubmit = async () => {
     await createProject({
       name: form.value.name,
       description: form.value.description,
+      image_base_path: form.value.image_base_path || null,
       config_json: { pages: [] },
     })
     alert('项目创建成功')
@@ -95,6 +97,17 @@ const handleSubmit = async () => {
               rows="4"
               placeholder="请输入项目描述（可选）"
             ></textarea>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">图片根目录</label>
+            <input
+              v-model="form.image_base_path"
+              type="text"
+              class="form-input"
+              placeholder="如 /mnt/data/images（可选）"
+            />
+            <span class="form-hint">图片存储的服务器本地路径，用于图片代理访问</span>
           </div>
         </form>
       </div>
@@ -183,6 +196,12 @@ const handleSubmit = async () => {
 .form-error {
   font-size: 12px;
   color: #EF4444;
+  margin-top: 4px;
+}
+
+.form-hint {
+  font-size: 12px;
+  color: #9CA3AF;
   margin-top: 4px;
 }
 

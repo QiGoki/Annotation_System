@@ -15,6 +15,10 @@ export interface AnnotationContext {
   // ===== 配置 =====
   config: Ref<ImageBBoxAnnotatorConfig | null>
 
+  // ===== 项目信息 =====
+  projectId: Ref<number | null>
+  imageBasePath: Ref<string | null>
+
   // ===== BBox 数据 =====
   bboxList: Ref<BboxItem[]>
 
@@ -29,6 +33,7 @@ export interface AnnotationContext {
   // ===== 方法 =====
   setRawData(data: any): void
   setConfig(cfg: ImageBBoxAnnotatorConfig): void
+  setProjectInfo(projectId: number, imageBasePath: string | null): void
   parseBboxList(): void
   updateBbox(id: string, field: string, value: any): void
   updateBboxCoord(id: string, bbox: BboxCoord): void
@@ -149,6 +154,10 @@ export function createAnnotationContext(): AnnotationContext {
   // 配置
   const config = ref<ImageBBoxAnnotatorConfig | null>(null)
 
+  // 项目信息
+  const projectId = ref<number | null>(null)
+  const imageBasePath = ref<string | null>(null)
+
   // BBox 数据
   const bboxList = ref<BboxItem[]>([])
 
@@ -179,6 +188,11 @@ export function createAnnotationContext(): AnnotationContext {
     if (rawData.value) {
       parseBboxList()
     }
+  }
+
+  const setProjectInfo = (pid: number, basePath: string | null) => {
+    projectId.value = pid
+    imageBasePath.value = basePath
   }
 
   const parseBboxList = () => {
@@ -403,6 +417,8 @@ export function createAnnotationContext(): AnnotationContext {
   const context: AnnotationContext = {
     rawData,
     config,
+    projectId,
+    imageBasePath,
     bboxList,
     selectedId,
     showAllBboxes,
@@ -410,6 +426,7 @@ export function createAnnotationContext(): AnnotationContext {
     representField,
     setRawData,
     setConfig,
+    setProjectInfo,
     parseBboxList,
     updateBbox,
     updateBboxCoord,

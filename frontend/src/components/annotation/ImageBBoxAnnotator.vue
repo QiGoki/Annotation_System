@@ -43,14 +43,39 @@ const imageLoaded = ref(false)
 const naturalWidth = ref(0)
 const naturalHeight = ref(0)
 
-// 图片 URL（处理路径清洗）
+// 图片 URL（处理路径清洗和代理）
 const imageUrl = computed(() => {
   if (!config.value) return ''
-  let url = context.rawData.value?.[config.value.image.field] || ''
+
+  let rawValue = context.rawData.value?.[config.value.image.field]
+
+  // 如果是数组，取第一个元素
+  if (Array.isArray(rawValue)) {
+    rawValue = rawValue[0]
+  }
+
+  let url = typeof rawValue === 'string' ? rawValue : ''
+
+  if (!url) return ''
 
   // 路径清洗
-  if (config.value.image.pathClean?.enabled && config.value.image.pathClean.prefix) {
-    url = url.replace(config.value.image.pathClean.prefix, '')
+  const pathClean = config.value.image.pathClean
+  if (url && pathClean?.enabled && pathClean?.prefix) {
+    let prefixes = pathClean.prefix
+    if (!Array.isArray(prefixes)) {
+      prefixes = [prefixes]
+    }
+    for (const prefix of prefixes) {
+      if (prefix && url.startsWith(prefix)) {
+        url = url.replace(prefix, '')
+        break
+      }
+    }
+  }
+
+  // 如果配置了图片根目录，使用代理 URL
+  if (context.imageBasePath.value && context.projectId.value) {
+    return `/api/v1/projects/${context.projectId.value}/images/${encodeURIComponent(url)}`
   }
 
   return url
@@ -961,6 +986,7 @@ watch(imageUrl, () => {
   flex-shrink: 0;
   overflow: auto;
   padding: 16px;
+  box-sizing: border-box;
 }
 
 .no-selection {
@@ -974,6 +1000,7 @@ watch(imageUrl, () => {
 
 .panel-section {
   margin-bottom: 20px;
+  padding-right: 12px;
 }
 
 .panel-section-title {
@@ -1009,6 +1036,7 @@ watch(imageUrl, () => {
     font-size: 13px;
     outline: none;
     transition: border-color 0.15s;
+    box-sizing: border-box;
 
     &:focus {
       border-color: #165DFF;
@@ -1050,6 +1078,7 @@ watch(imageUrl, () => {
     font-size: 13px;
     outline: none;
     transition: border-color 0.15s;
+    box-sizing: border-box;
 
     &:focus {
       border-color: #165DFF;
